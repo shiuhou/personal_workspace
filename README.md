@@ -11,6 +11,8 @@ Local-first Personal Learning & Research Workspace，建於 Obsidian 之內。�
 
 ## 開發
 
+雲端環境的安裝命令可使用 `bash .codex/setup.sh`，會進入隱藏的插件目錄並以固定 pnpm 版本安裝鎖定依賴。根目錄的 `AGENTS.md` 提供接續開發與驗證指引。這些檔案只準備建置環境，不代表 Codex Cloud 環境已建立或發布。
+
 插件完整原始碼與目前建置產物位於 `.obsidian/plugins/learning-research-workspace/`。使用 Node.js 22+ 與 pnpm：
 
 ```sh
