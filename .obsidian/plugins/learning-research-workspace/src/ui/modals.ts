@@ -39,6 +39,7 @@ export class NewObjectModal extends Modal {
       }).open(),{icon:'file-search'});
       const input=picker(controls,'.pdf',false,files=>{this.pending=files[0];this.pdf='';selected.setText(`匯入：${files[0].name}`);if(!this.title){this.title=safeStem(files[0].name.replace(/\.pdf$/i,''));titleInput.value=this.title;}});
       button(controls,'匯入 PDF',()=>input.click(),{icon:'upload'});
+      button(controls,'清除 PDF 選擇',()=>{this.pdf='';this.pending=undefined;selected.setText('PDF 為選填，也可以先建立閱讀筆記。');},{icon:'x'});
     }
     const details=this.contentEl.createEl('details',{cls:'lr-more'});details.createEl('summary',{text:'關聯與來源 · Optional'});
     if(!['course','project'].includes(this.type)) {
@@ -56,6 +57,8 @@ export class NewObjectModal extends Modal {
       if(this.source && !/^https?:\/\//i.test(this.source.trim())) {error.setText('來源請使用 http 或 https 網址。');return;}
       submit.disabled=true;
       try {
+        // Check the source before importing a binary to avoid an orphan duplicate PDF.
+        if(this.type==='paper'&&this.pending&&this.host.actions.findPaper('',this.source))throw new Error('此來源已有主筆記。請取消匯入 PDF 再開啟原筆記；新版本請使用含版本號的來源。');
         if(this.pending) {
           const [file]=await this.host.actions.importFiles([this.pending],this.host.settings.folders.attachments);
           this.pdf=`[[${file.path}]]`;this.pending=undefined;
@@ -111,7 +114,7 @@ export class MetadataModal extends Modal {
     relation(this.contentEl,this.host,'研究專案 Projects','project',this.projects,true,v=>this.projects=v);
     relation(this.contentEl,this.host,'課程 Course','course',this.course?[this.course]:[],false,v=>this.course=v[0] ?? '');
     const more=this.contentEl.createEl('details',{cls:'lr-more'});more.createEl('summary',{text:'分類 · Optional'});
-    new Setting(more).setName('課程材料').addDropdown(d=>d.addOptions({'':'一般','lecture':'講義 Lecture','assignment':'作業 Assignment','review':'複習 Review'}).setValue(this.kind).onChange(v=>this.kind=v));
+    new Setting(more).setName('筆記用途 Kind').addDropdown(d=>d.addOptions({'':'一般','concept':'可重用概念 Concept','lecture':'講義 Lecture','assignment':'作業 Assignment','review':'複習 Review'}).setValue(this.kind).onChange(v=>this.kind=v));
     new Setting(more).setName('主題 Topics').setDesc('以逗號分隔，無需預先建立分類。').addText(t=>t.setValue(this.topics).onChange(v=>this.topics=v));
     const error=this.contentEl.createDiv({cls:'lr-form-error',attr:{role:'alert'}});
     const footer=this.contentEl.createDiv({cls:'lr-modal-actions'});button(footer,'取消',()=>this.close());

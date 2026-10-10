@@ -72,3 +72,37 @@ test('quick capture keeps user text, has no compulsory type, and goes to Inbox',
   const h=harness();const text='Unsorted thought\n\nhttps://example.com';const file=await h.actions.capture(text,false);
   assert.match(file.path,/^01 Inbox\//);const content=h.contents.get(file.path) as string;assert.ok(content.includes(text));assert.ok(!content.includes('type:'));assert.ok(content.includes('status: inbox'));
 });
+
+test('arXiv abs and PDF URLs reuse a main note without changing personal text or anchors',async()=>{
+  const h=harness();const note=h.add('30 Papers/Original.md','Handwritten reading notes',{type:'paper',source:'https://arxiv.org/abs/1706.03762v1',status:'reading',custom:'keep',projects:['[[A]]']});
+  const file=await h.actions.create({type:'paper',title:'Different title',source:'https://arxiv.org/pdf/1706.03762v1.pdf',projects:['[[B]]']});
+  assert.equal(file,note);assert.equal(h.contents.get(note.path),'Handwritten reading notes');
+  assert.deepEqual(h.metadata.get(note),{type:'paper',source:'https://arxiv.org/abs/1706.03762v1',status:'reading',custom:'keep',projects:['[[A]]','[[B]]']});
+});
+test('explicit arXiv versions are separate, and a different PDF never replaces an annotated PDF',async()=>{
+  const h=harness();h.add('80 Attachments/v1.pdf');h.add('80 Attachments/v2.pdf');
+  const note=h.add('30 Papers/Original.md','My annotations',{type:'paper',source:'https://arxiv.org/abs/1706.03762v1',pdf:'[[80 Attachments/v1.pdf]]'});
+  await assert.rejects(h.actions.create({type:'paper',title:'Same version',source:'https://arxiv.org/abs/1706.03762v1',pdf:'[[80 Attachments/v2.pdf]]'}),/其他 PDF/);
+  const newer=await h.actions.create({type:'paper',title:'Version 2',source:'https://arxiv.org/abs/1706.03762v2',pdf:'[[80 Attachments/v2.pdf]]'});
+  assert.notEqual(newer,note);assert.equal(h.metadata.get(note)?.pdf,'[[80 Attachments/v1.pdf]]');assert.equal(h.contents.get(note.path),'My annotations');
+});
+test('conflicting source and PDF companions fail without editing either note',async()=>{
+  const h=harness();h.add('80 Attachments/A.pdf');
+  const a=h.add('30 Papers/A.md','A',{type:'paper',pdf:'[[80 Attachments/A.pdf]]',source:'https://doi.org/10.1234/A'});
+  const b=h.add('30 Papers/B.md','B',{type:'paper',source:'https://doi.org/10.1234/B'});
+  await assert.rejects(h.actions.create({type:'paper',title:'Conflicting',pdf:'[[80 Attachments/A.pdf]]',source:'https://doi.org/10.1234/B'}),/多份/);
+  assert.equal(h.contents.get(a.path),'A');assert.equal(h.contents.get(b.path),'B');assert.equal(h.files.has('30 Papers/Conflicting.md'),false);
+});
+test('concept capture stays a note, inherits projects and writes a durable source link',async()=>{
+  const h=harness();h.add('90 Templates/Concept.md','# {{title}}\n\n## Understanding\n');
+  const file=await h.actions.create({type:'note',kind:'concept',title:'Reusable idea',projects:['[[Project]]'],body:'## Source\n[[30 Papers/Original]]'});
+  assert.equal(h.metadata.get(file)?.type,'note');assert.equal(h.metadata.get(file)?.kind,'concept');
+  assert.match(h.contents.get(file.path) as string,/Understanding/);assert.match(h.contents.get(file.path) as string,/\[\[30 Papers\/Original\]\]/);
+});
+
+test('same PDF with conflicting explicit source version is not silently reused',async()=>{
+  const h=harness();h.add('80 Attachments/A.pdf');
+  const original=h.add('30 Papers/A.md','Keep annotations',{type:'paper',pdf:'[[80 Attachments/A.pdf]]',source:'https://arxiv.org/abs/1706.03762v1'});
+  await assert.rejects(h.actions.create({type:'paper',title:'Version 2',source:'https://arxiv.org/abs/1706.03762v2',pdf:'[[80 Attachments/A.pdf]]'}),/不同來源或版本/);
+  assert.equal(h.contents.get(original.path),'Keep annotations');
+});

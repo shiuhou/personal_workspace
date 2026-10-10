@@ -1,5 +1,5 @@
 import { App, TFile, moment, normalizePath } from 'obsidian';
-import { ObjectType, TEMPLATES, WorkspaceSettings, linkTarget, safeStem, strings, validateFolder } from '../domain';
+import { ObjectType, TEMPLATES, WorkspaceSettings, linkTarget, paperIdentity, safeStem, strings, validateFolder } from '../domain';
 
 export interface CreateInput {
   type:ObjectType; title:string; projects?:string[]; course?:string; pdf?:string; source?:string; kind?:string;
@@ -32,19 +32,44 @@ export class FileActions {
     }
     return null;
   }
+  findPaper(pdfLink='',source=''):TFile|null {
+    const pdf=pdfLink?this.app.metadataCache.getFirstLinkpathDest(linkTarget(pdfLink),''):null;
+    const companion=pdf?this.findCompanion(pdf):null;
+    if(companion&&this.app.metadataCache.getFileCache(companion)?.frontmatter?.type!=='paper')throw new Error(`此 PDF 已由 ${companion.path} 說明，請編輯該筆記。`);
+    const identity=paperIdentity(source);
+    const matches=identity?this.app.vault.getMarkdownFiles().filter(file=>{
+      const fm=this.app.metadataCache.getFileCache(file)?.frontmatter;
+      return fm?.type==='paper'&&typeof fm.source==='string'&&paperIdentity(fm.source)===identity;
+    }):[];
+    if(companion&&!matches.includes(companion))matches.push(companion);
+    if(matches.length>1)throw new Error(`找到多份可能的主筆記：${matches.map(f=>f.path).join('、')}。請先核對來源與 PDF，未覆寫任何筆記。`);
+    const existing=matches[0];
+    if(companion&&identity){
+      const oldSource=this.app.metadataCache.getFileCache(companion)?.frontmatter?.source;
+      if(typeof oldSource==='string'&&paperIdentity(oldSource)&&paperIdentity(oldSource)!==identity)throw new Error(`此 PDF 的主筆記 ${companion.path} 已記錄不同來源或版本。請核對後再新增，未改動原筆記。`);
+    }
+    if(existing&&pdf){
+      const old=this.app.metadataCache.getFileCache(existing)?.frontmatter?.pdf;
+      if(typeof old==='string'&&old){
+        const oldPdf=this.app.metadataCache.getFirstLinkpathDest(linkTarget(old),existing.path);
+        if(oldPdf?.path!==pdf.path)throw new Error(`此來源已有主筆記 ${existing.path} 並連結其他 PDF。請核對版本；原 PDF 與批注未改動。`);
+      }
+    }
+    return existing ?? null;
+  }
   async create(input:CreateInput):Promise<TFile> {
     const stem=safeStem(input.title);
     if(!stem) throw new Error('請輸入有效的標題。');
-    if(input.type==='paper'&&input.pdf) {
-      const pdf=this.app.metadataCache.getFirstLinkpathDest(linkTarget(input.pdf),'');
-      const existing=pdf?this.findCompanion(pdf):null;
-      if(existing) {
-        const fm=this.app.metadataCache.getFileCache(existing)?.frontmatter;
-        if(fm?.type!=='paper')throw new Error(`此 PDF 已由 ${existing.path} 說明，請編輯該筆記。`);
+    if(input.type==='paper') {
+      const existing=this.findPaper(input.pdf,input.source);
+      if(existing){
+        const fm=this.app.metadataCache.getFileCache(existing)?.frontmatter ?? {};
         const values:Record<string,unknown>={};
         if(input.projects?.length)values.projects=[...new Set([...strings(fm.projects ?? fm.project),...input.projects])];
-        if(input.course)values.course=input.course;
-        if(input.source)values.source=input.source;
+        // Reuse the main note without replacing personal notes, status or source/PDF anchors.
+        if(input.course&&!fm.course)values.course=input.course;
+        if(input.pdf&&!fm.pdf)values.pdf=input.pdf;
+        if(input.source&&!fm.source)values.source=input.source;
         if(Object.keys(values).length)await this.update(existing,values);
         return existing;
       }
@@ -52,7 +77,7 @@ export class FileActions {
     const folder=this.settings().folders[input.capture?'inbox':input.type];
     await this.ensureFolder(folder);
     const path=this.unique(folder,`${stem}.md`);
-    const templatePath=normalizePath(`${this.settings().folders.templates}/${TEMPLATES[input.type]}.md`);
+    const templatePath=normalizePath(`${this.settings().folders.templates}/${input.type==='note'&&input.kind==='concept'?'Concept':TEMPLATES[input.type]}.md`);
     const template=this.app.vault.getFileByPath(templatePath);
     if(!template) throw new Error(`找不到範本 ${templatePath}。請在設定中檢查範本資料夾。`);
     const raw=await this.app.vault.read(template);

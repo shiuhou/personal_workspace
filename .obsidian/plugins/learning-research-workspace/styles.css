@@ -149,3 +149,27 @@
   .lr-empty {padding:20px;}.lr-paper-tools {gap:8px;}
 }
 @media (prefers-reduced-motion:reduce){.lr-workspace * {transition:none!important;scroll-behavior:auto!important;}}
+
+.lr-research-map {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:30px;}
+.lr-research-area {padding:20px;border:1px solid var(--lr-border);border-radius:var(--lr-radius);background:var(--background-primary-alt);min-width:0;}
+.lr-research-area .lr-card-icon {margin-bottom:14px;}
+.lr-research-area>small {display:block;color:var(--text-muted);letter-spacing:.08em;font-size:10px;margin-bottom:7px;}
+.lr-research-area>p {font-size:12px;color:var(--text-muted);line-height:1.8;margin:8px 0 16px;}
+.lr-type-paper .lr-card-icon {color:var(--lr-paper);}
+@container (max-width:850px){.lr-research-map{grid-template-columns:1fr;}.lr-research-area{padding:16px;}.lr-research-area>p{margin-bottom:8px;}}
+
+.lr-task-capture {display:flex;gap:10px;align-items:center;}
+.lr-task-capture>input {flex:1;min-width:0;height:38px;}
+.lr-task-tools {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;}
+.lr-task-show {display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-muted);}
+.lr-task-row {display:flex;align-items:flex-start;gap:12px;padding:12px 4px;border-bottom:1px solid var(--lr-border);}
+.lr-task-row>input {margin-top:5px;flex-shrink:0;}
+.lr-task-text {font-size:13px;line-height:1.7;min-width:0;overflow-wrap:anywhere;}
+.lr-task-text p {margin:0;}.lr-task-row.is-done .lr-task-text {color:var(--text-muted);text-decoration:line-through;}
+.lr-project-progress {margin:12px 0;max-width:520px;}
+.lr-progress-label {display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--text-muted);}
+.lr-project-progress progress {display:block;width:100%;height:7px;border:0;border-radius:8px;overflow:hidden;accent-color:var(--interactive-accent);background:var(--background-modifier-border);}
+.lr-project-progress progress::-webkit-progress-bar {background:var(--background-modifier-border);border-radius:8px;}
+.lr-project-progress progress::-webkit-progress-value {background:var(--interactive-accent);border-radius:8px;}
+.lr-progress-unset {height:7px;border:1px dashed var(--lr-border);border-radius:8px;}
+@container (max-width:580px){.lr-task-capture{flex-wrap:wrap;}.lr-task-capture>input{flex-basis:100%;}.lr-task-tools{flex-wrap:wrap;}}

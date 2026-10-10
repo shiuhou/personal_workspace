@@ -2,7 +2,7 @@
 
 這個 Vault 是一個以本地檔案為資料來源的學習與研究工作區。自訂插件提供導覽與整理介面；Obsidian 提供 Markdown 編輯、PDF 檢視、檔案、連結與搜尋。
 
-> 開發存檔（2026-10-10）：以下說明描述目前實作的設計與操作。目前建置及 25 項測試通過，但實機 Workspace 載入仍有錯誤，尚未完成 V1 驗收。最新進度與待辦見 [[HANDOFF]]。
+> 2026-10-10：載入與重新命名索引問題已修復，研究設計已融入現有介面。37 項自動測試通過，並已在 Obsidian 1.14.4 驗證主要建立／閱讀流程與明暗模式。完整驗證範圍與尚未覆蓋的項目見 [[VALIDATION]]。
 
 [開啟 Workspace](obsidian://learning-research-workspace?vault=personal_os) · [[00 Home/Home|原生備用入口]] · [[00 Home/Library.base|原生資料瀏覽]] · [[DESIGN_DECISIONS|設計決策]]
 
@@ -18,7 +18,7 @@
 ### 第一個研究專案
 
 1. 在 Home 選「建立研究專案」，或執行 `New research project`。
-2. 輸入名稱，開始寫「研究問題」「當前重點」「重要決策」。
+2. 輸入名稱，開始寫「研究問題」「判斷標準」「當前重點」「重要決策」「成果與證據」。
 3. 從 Project 詳情頁新增論文、筆記、實驗、想法或資源，會自動帶入專案關聯。
 4. 已有資料可用「編輯屬性」加入 `projects`，或在原生 Properties 編輯。多個專案可以共享同一篇論文。
 
@@ -31,9 +31,35 @@
 5. 在論文詳情頁開啟 PDF，或選「PDF ＋ 閱讀筆記」使用兩個原生分頁群組並排閱讀。
 6. 讀到什麼就記錄什麼；不自動生成摘要。作者、年份、主題與 PDF 連結也可稍後在原生 Properties 補上。
 
-同一個本地 PDF 已有 Paper companion note 時，建立操作會重用原筆記，並合併此次選擇的專案關聯。V1 不根據 DOI、標題相似度或 PDF 內容進行文獻去重；匯入另一份 PDF 檔案仍視為不同附件。
+同一個本地 PDF，或相同的明確 arXiv／DOI 來源 URL，會重用已有主筆記並合併專案關聯，保留手寫正文、閱讀狀態及原 PDF 錨點。arXiv 的 abs／pdf URL 可互相辨識，但 v1、v2 與未指定版本的 URL 分別處理。遇到來源與 PDF 衝突或多份同來源主筆記會停止，請先核對。若選了外部 PDF 且來源已存在，請「清除 PDF 選擇」後開啟原筆記。
+
+不憑標題相似度、一般網站 URL 或 PDF 內容判斷同一論文；沒有穩定来源的另一份 PDF 仍可能重複。來源 URL 不會自動下載原文或查詢出版資訊。
+
+## 知識、來源與實踐
+
+Research 頁提供三個入口，都是現有檔案的檢視，不新增重複資料：
+
+- **Knowledge** → `40 Notes` 等位置中標記 `type: note` 的知識與筆記，包含課程可重用內容。保留長筆記，出現重用需要才使用 Concept 範本拆出概念。
+- **Sources** → Papers。一篇論文共用一份主筆記與 PDF；逐頁引用與自己的理解分開寫。
+- **Practice** → Experiments。Project 保存研究問題、判斷標準、決策與成果連結；Experiment 保存方法和證據，包括失敗與反證。
+
+論文詳情提供「建立概念筆記」及「記下實驗線索」，自動帶入 `projects`／`course`，並在新筆記正文加入指向論文的來源連結。相關內容會依明確的雙向引用自動發現，不把同專案的所有資料都算成相關。
+
+概念仍是 `type: note`，只多一個選填 `kind: concept`。Research → 知識與理解也能直接建立概念，Library 的「可重用概念」可單獨篩選。一般筆記維持輕量，沒有強迫拆分或自動補完推導。
+
+PDF 頁碼引用使用 `[[80 Attachments/檔名.pdf#page=3|第 3 頁]]`，引文後另寫自己的解讀。PDF++ 與 Paper Importer **沒有安裝**，並非必要依賴；選區高亮、arXiv 自動下載不在本次實作中。若日後確實需要，先在獨立測試 Vault 驗證與一份主筆記的相容性，再決定是否引入；不要讓其他導入器覆寫已有閱讀理解。
 
 ## 日常使用
+
+### 首頁待辦與專案進度
+
+首頁「今日與接下來 Tasks」可直接新增一行待辦、勾選完成及顯示已完成項目。原始資料在 `40 Notes/Tasks.md`，第一次新增才建立，內容是普通 Markdown `- [ ]`／`- [x]` 清單。可用 Wikilinks 連回課程、專案或論文；沒有自動清空、逾期懲罰或假任務。
+
+「開啟原始清單」可編輯多行、重排或刪除項目。程式忽略 fenced code block 裡的範例核取方塊。尚未填寫的清單呈現空白狀態；首頁先顯示八項，可載入更多。更改 Notes 根目錄後會讀取新位置的 Tasks.md，不會搬移舊檔案。
+
+Project 卡片和詳情提供「設定／更新進度」，以數字 `progress: 0` 至 `progress: 100` 保存在專案 Markdown 的 Properties。缺值或無效數字顯示「尚未設定」，不當成 0%；100% 也不會擅自更改專案 status。首頁顯示進行中專案，Research 可以查看其他狀態的專案進度。
+
+你每天可讓 AI 更新 Tasks.md 及專案的 progress；修改檔案後介面會自動刷新。更新約定見 [[AI_WORKFLOW]]。本插件不含 AI 服務或計時器，目前沒有建立每天自動執行的排程。
 
 ### 收集與整理 Inbox
 
@@ -74,12 +100,12 @@ personal_os/
 ├── 60 Ideas/                整理後的想法
 ├── 70 Resources/            參考資料說明筆記
 ├── 80 Attachments/          PDF、圖片及其他附件
-├── 90 Templates/            七份普通 Markdown 範本
-├── 99 System/Documentation/ README.md、DESIGN_DECISIONS.md
+├── 90 Templates/            七種物件範本 + Concept 筆記變體
+├── 99 System/Documentation/ README.md、DESIGN_DECISIONS.md、HANDOFF.md、VALIDATION.md、References/
 └── .obsidian/               原生配置、自訂插件與完整原始碼
 ```
 
-資料夾是預設存放處。物件發現依 `type`，關聯依連結，不要求每個課程或專案有自己的資料夾樹。`00 Home`、範本、`99 System`、隱藏檔案不混入日常內容列表。設定中明確指定的資料根目錄可覆蓋系統資料夾排除規則。
+資料夾是預設存放處。物件發現依 `type`，關聯依連結，不要求每個課程或專案有自己的資料夾樹。`00 Home`、範本、`99 System`、根目錄的 README／AGENTS、隱藏檔案不混入日常內容列表。設定中明確指定的資料根目錄可覆蓋系統資料夾排除規則。
 
 未分類的 Markdown 和非 Markdown 檔案仍可在 Inbox、Recent、Library 出現。Canvas、Bases、圖片及 PDF 交給 Obsidian 原生處理；其他格式可由檔案瀏覽器交給系統應用程式。
 
@@ -94,8 +120,9 @@ personal_os/
 | `created` | 範本自動填入 `YYYY-MM-DD`；不是活動追蹤 |
 | `projects` | 研究專案 Wikilink 清單，支援多個專案 |
 | `course` | 單一 Course Wikilink |
-| `kind` | 課程材料選填 `lecture / assignment / review` |
+| `kind` | 選填 `lecture / assignment / review`；概念筆記用 `concept`；首頁待辦清單用 `tasks` |
 | `topics` | 選填文字清單，不要求預建 topic 物件 |
+| `progress` | Project 選填 0–100 數字，由人或經授權的 AI 更新 |
 | `pinned` | 選填布林值 `true`；普通內容可省略 |
 | `authors` | Paper 選填文字清單 |
 | `year` | Paper 選填出版年份 |
@@ -111,7 +138,7 @@ personal_os/
 | --- | --- | --- |
 | Course | planned, active, completed, archived | active |
 | Project | active, paused, completed, archived | active |
-| Paper | inbox, reading, read, reference, archived | inbox |
+| Paper | inbox, skimming, reading, synthesized, read, reference, archived | inbox |
 | Experiment | planned, running, completed, failed, paused | planned |
 | Idea | inbox, archived；整理後也可不填 | inbox |
 | Note | inbox, archived；平時不必填 | 無 |
@@ -134,11 +161,11 @@ pdf: "[[80 Attachments/你的論文.pdf]]"
 - 新寫入的關聯使用完整 Vault 相對路徑，避免同名歧義。
 - 舊的單數 `project` 可讀取；經關聯編輯後統一寫為 `projects`。
 - 用原生 Obsidian 搬移／重新命名，或 Workspace 的整理操作，並保持「自動更新內部連結」啟用。外部檔案工具直接搬移不保證引用自動修復；斷連結仍保留可讀文字。
-- Paper 詳情的相關筆記／實驗，只顯示明確連結到該 Paper 的檔案，不把所有同專案實驗推斷成相關。
+- Paper 詳情的相關筆記／實驗，顯示明確連結到該 Paper，或由該 Paper 指向的知識／實驗等內容，不把所有同專案實驗推斷成相關。
 
 ## 範本
 
-[[90 Templates/Course|Course]] · [[90 Templates/Research Project|Research Project]] · [[90 Templates/Paper|Paper]] · [[90 Templates/General Note|General Note]] · [[90 Templates/Experiment|Experiment]] · [[90 Templates/Idea|Idea]] · [[90 Templates/Resource|Resource]]
+[[90 Templates/Course|Course]] · [[90 Templates/Research Project|Research Project]] · [[90 Templates/Paper|Paper]] · [[90 Templates/General Note|General Note]] · [[90 Templates/Experiment|Experiment]] · [[90 Templates/Idea|Idea]] · [[90 Templates/Resource|Resource]] · [[90 Templates/Concept|Concept（Note 變體）]]
 
 原生 Templates 與 Workspace 共用同一份 Markdown。Workspace 支援 `{{title}}`、`{{date}}`、`{{time}}` 及日期／時間格式，不執行模板 JavaScript。直接修改範本會影響之後建立的物件，不會改動已有筆記。編輯範本建議使用 Source mode，避免 Properties UI 將佔位文字轉型。
 
@@ -172,6 +199,8 @@ learning-research-workspace/
 │   ├── domain.ts            七種物件、正規化、純查詢
 │   ├── settings.ts          少量設定
 │   ├── data/index.ts        可重建的記憶體索引與關聯
+│   ├── data/tasks.ts        普通 Markdown 待辦與安全勾選
+│   ├── ui/planning.ts       專案進度編輯
 │   ├── data/actions.ts      建立、匯入、屬性更新、整理
 │   ├── ui/components.ts     按鈕、空白狀態等共用元件
 │   ├── ui/modals.ts         建立、捕捉、整理與關聯選擇
@@ -223,4 +252,4 @@ pnpm run build
 
 ## 驗收紀錄
 
-2026-10-10：建置成功，25 項自動測試通過。實機 Obsidian 1.14.4 出現 Workspace 分頁，但內容為 Uninitialized，並顯示「找不到檔案：undefined」。GUI 驗收尚未通過；詳見 [[HANDOFF]]。靜態檢查、建置与模擬 API 測試不等同於實際 Obsidian 畫面驗收。
+2026-10-10：37 項自動測試通過，TypeScript 與打包成功。Obsidian 1.14.4 已正常顯示 Home 與 Research；實機驗證建立 Course、Project、Paper、Concept、Idea、專案關聯、PDF 並排、重新命名、原生搜尋、Inbox 整理與明暗畫面。詳見 [[VALIDATION]]，其中明確分開模擬 API 與 GUI 證據。

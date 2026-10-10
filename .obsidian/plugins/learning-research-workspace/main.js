@@ -23,7 +23,74 @@ __export(main_exports, {
   default: () => WorkspacePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
+
+// src/data/tasks.ts
+function parseTasks(content) {
+  const tasks = [];
+  let fence = "";
+  for (const [line, raw] of content.split(/\r?\n/).entries()) {
+    const marker = raw.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      if (!fence) fence = marker[1];
+      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = "";
+      continue;
+    }
+    if (fence) continue;
+    const match = raw.match(/^\s*[-*+] \[([ xX])\]\s+(.+)$/);
+    if (match) tasks.push({ line, raw, text: match[2], done: match[1].toLowerCase() === "x" });
+  }
+  return tasks;
+}
+function toggleTask(content, task) {
+  const lines = content.split("\n");
+  if (lines[task.line]?.replace(/\r$/, "") !== task.raw) throw new Error("\u5F85\u8FA6\u5DF2\u88AB\u5176\u4ED6\u7DE8\u8F2F\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u67E5\u770B\u5F8C\u518D\u52FE\u9078\u3002");
+  lines[task.line] = lines[task.line].replace(/\[([ xX])\]/, task.done ? "[ ]" : "[x]");
+  return lines.join("\n");
+}
+function appendTask(content, text2) {
+  const title = text2.trim();
+  if (!title || /[\r\n]/.test(title)) throw new Error("\u8ACB\u8F38\u5165\u4E00\u884C\u5F85\u8FA6\uFF1B\u591A\u884C\u5167\u5BB9\u53EF\u958B\u555F\u539F\u59CB\u6E05\u55AE\u7DE8\u8F2F\u3002");
+  return content + (content.endsWith("\n") ? "" : "\n") + "- [ ] " + title + "\n";
+}
+var TaskStore = class {
+  constructor(app, path) {
+    this.app = app;
+    this.path = path;
+  }
+  async read() {
+    const file = this.app.vault.getFileByPath(this.path);
+    return file ? this.app.vault.read(file) : "";
+  }
+  async add(text2) {
+    appendTask("", text2);
+    let file = this.app.vault.getFileByPath(this.path);
+    if (!file) {
+      const parts = this.path.split("/");
+      parts.pop();
+      let folder = "";
+      for (const part of parts) {
+        folder = folder ? folder + "/" + part : part;
+        if (!this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+      }
+      try {
+        file = await this.app.vault.create(this.path, "---\ntype: note\nkind: tasks\n---\n# \u5F85\u8FA6 Tasks\n\n");
+      } catch (error) {
+        file = this.app.vault.getFileByPath(this.path);
+        if (!file) throw error;
+      }
+    }
+    await this.app.vault.process(file, (content) => appendTask(content, text2));
+  }
+  async toggle(task) {
+    const file = this.app.vault.getFileByPath(this.path);
+    if (!file) throw new Error("\u5F85\u8FA6\u6A94\u6848\u5DF2\u79FB\u52D5\u6216\u522A\u9664\u3002");
+    await this.app.vault.process(file, (content) => toggleTask(content, task));
+  }
+};
+function progressValue(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : void 0;
+}
 
 // src/domain.ts
 var TYPES = ["course", "project", "paper", "note", "experiment", "idea", "resource"];
@@ -37,13 +104,13 @@ var TEMPLATES = { course: "Course", project: "Research Project", paper: "Paper",
 var STATUSES = {
   course: ["planned", "active", "completed", "archived"],
   project: ["active", "paused", "completed", "archived"],
-  paper: ["inbox", "reading", "read", "reference", "archived"],
+  paper: ["inbox", "skimming", "reading", "synthesized", "read", "reference", "archived"],
   experiment: ["planned", "running", "completed", "failed", "paused"],
   idea: ["inbox", "archived"],
   note: ["inbox", "archived"],
   resource: ["inbox", "reference", "archived"]
 };
-var STATUS_LABELS = { planned: "\u8A08\u756B\u4E2D", active: "\u9032\u884C\u4E2D", completed: "\u5DF2\u5B8C\u6210", archived: "\u5DF2\u5C01\u5B58", paused: "\u66AB\u505C", inbox: "\u5F85\u6574\u7406", reading: "\u95B1\u8B80\u4E2D", read: "\u5DF2\u8B80", reference: "\u53C3\u8003", running: "\u57F7\u884C\u4E2D", failed: "\u5931\u6557" };
+var STATUS_LABELS = { planned: "\u8A08\u756B\u4E2D", active: "\u9032\u884C\u4E2D", completed: "\u5DF2\u5B8C\u6210", archived: "\u5DF2\u5C01\u5B58", paused: "\u66AB\u505C", inbox: "\u5F85\u6574\u7406", skimming: "\u7565\u8B80", synthesized: "\u5DF2\u6574\u5408", reading: "\u95B1\u8B80\u4E2D", read: "\u5DF2\u8B80", reference: "\u53C3\u8003", running: "\u57F7\u884C\u4E2D", failed: "\u5931\u6557" };
 function text(value) {
   return typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 }
@@ -57,6 +124,7 @@ function inFolder(path, folder) {
   return path.startsWith(folder.replace(/\/$/, "") + "/");
 }
 function isContentPath(path, settings) {
+  if (["README.md", "AGENTS.md"].includes(path)) return false;
   if (path.split("/").some((s) => s.startsWith(".")) || inFolder(path, settings.folders.templates)) return false;
   if (Object.entries(settings.folders).some(([key, folder]) => key !== "templates" && inFolder(path, folder))) return true;
   return !inFolder(path, "00 Home") && !inFolder(path, "99 System");
@@ -69,8 +137,10 @@ function normalizeEntry(file, fm = {}, links = []) {
   if (fm.type && !isObjectType(fm.type)) issues.push("\u672A\u77E5\u7684 type\uFF0C\u8ACB\u5728\u539F\u59CB\u7B46\u8A18\u4E2D\u4FEE\u6B63\u3002");
   if (fm.project && !fm.projects) issues.push("\u5075\u6E2C\u5230\u820A\u6B04\u4F4D project\uFF1B\u7DE8\u8F2F\u95DC\u806F\u6642\u6703\u6539\u7528 projects\u3002");
   for (const key of ["projects", "topics", "authors"]) if (fm[key] != null && !Array.isArray(fm[key])) issues.push(`${key} \u5EFA\u8B70\u4F7F\u7528\u6E05\u55AE\uFF1B\u76EE\u524D\u4EE5\u55AE\u4E00\u503C\u8B80\u53D6\u3002`);
+  if (fm.progress != null && progressValue(fm.progress) == null) issues.push("progress \u8ACB\u4F7F\u7528 0 \u81F3 100 \u7684\u6578\u5B57\uFF1B\u76EE\u524D\u986F\u793A\u5C1A\u672A\u8A2D\u5B9A\u3002");
   return {
     ...file,
+    progress: progressValue(fm.progress),
     type: isObjectType(fm.type) ? fm.type : void 0,
     status: text(fm.status),
     projects: strings(fm.projects ?? fm.project),
@@ -112,6 +182,30 @@ function courseGroup(entry) {
 function displayDate(value) {
   return new Intl.DateTimeFormat("zh-TW", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
+function paperIdentity(source) {
+  let url;
+  try {
+    url = new URL(source.trim());
+  } catch {
+    return "";
+  }
+  if (!["https:", "http:"].includes(url.protocol)) return "";
+  const host = url.hostname.toLowerCase();
+  if (host === "arxiv.org" || host === "www.arxiv.org") {
+    const id = url.pathname.replace(/^\/(abs|pdf)\//, "").replace(/\.pdf$/i, "");
+    if (/^(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(v\d+)?$/i.test(id)) return `arxiv:${id.toLowerCase()}`;
+  }
+  if (host === "doi.org" || host === "dx.doi.org") {
+    let id;
+    try {
+      id = decodeURIComponent(url.pathname.slice(1));
+    } catch {
+      return "";
+    }
+    if (/^10\.\d{4,9}\/\S+$/i.test(id)) return `doi:${id.toLowerCase()}`;
+  }
+  return "";
+}
 
 // src/data/index.ts
 var import_obsidian = require("obsidian");
@@ -131,12 +225,16 @@ var VaultIndex = class extends import_obsidian.Component {
   courseMembers = /* @__PURE__ */ new Map();
   references = /* @__PURE__ */ new Map();
   generation = 0;
+  pendingMetadata = /* @__PURE__ */ new Set();
   onload() {
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
       this.put(file);
       this.schedule();
     }));
-    this.registerEvent(this.app.metadataCache.on("resolved", () => this.schedule()));
+    this.registerEvent(this.app.metadataCache.on("resolved", () => {
+      for (const file of this.app.vault.getFiles()) this.put(file);
+      this.schedule();
+    }));
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (file instanceof import_obsidian.TFile) {
         this.put(file);
@@ -177,6 +275,8 @@ var VaultIndex = class extends import_obsidian.Component {
       return;
     }
     const cache = this.app.metadataCache.getFileCache(file);
+    if (file.extension.toLowerCase() === "md" && !cache) this.pendingMetadata.add(file.path);
+    else this.pendingMetadata.delete(file.path);
     this.entries.set(file.path, normalizeEntry(
       { path: file.path, name: file.basename, ext: file.extension.toLowerCase(), mtime: file.stat.mtime, ctime: file.stat.ctime },
       cache?.frontmatter,
@@ -209,6 +309,11 @@ var VaultIndex = class extends import_obsidian.Component {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       if (!this.stopped) {
+        for (const path of [...this.pendingMetadata]) {
+          const file = this.app.vault.getFileByPath(path);
+          if (file) this.put(file);
+          else this.pendingMetadata.delete(path);
+        }
         this.relate();
         this.emit();
       }
@@ -242,6 +347,15 @@ var VaultIndex = class extends import_obsidian.Component {
         if (dest) add(this.references, dest.path, entry.path);
       }
     }
+  }
+  connected(path) {
+    const entries = new Map(this.related(path, "references").map((e) => [e.path, e]));
+    for (const value of this.entries.get(path)?.links ?? []) {
+      const file = this.resolve(value, path);
+      const entry = file ? this.entries.get(file.path) : void 0;
+      if (entry && entry.path !== path) entries.set(entry.path, entry);
+    }
+    return [...entries.values()].filter((e) => e.type === "note" || e.type === "experiment" || e.type === "idea" || e.type === "paper");
   }
   all() {
     return [...this.entries.values()];
@@ -290,19 +404,43 @@ var FileActions = class {
     }
     return null;
   }
+  findPaper(pdfLink = "", source = "") {
+    const pdf = pdfLink ? this.app.metadataCache.getFirstLinkpathDest(linkTarget(pdfLink), "") : null;
+    const companion = pdf ? this.findCompanion(pdf) : null;
+    if (companion && this.app.metadataCache.getFileCache(companion)?.frontmatter?.type !== "paper") throw new Error(`\u6B64 PDF \u5DF2\u7531 ${companion.path} \u8AAA\u660E\uFF0C\u8ACB\u7DE8\u8F2F\u8A72\u7B46\u8A18\u3002`);
+    const identity = paperIdentity(source);
+    const matches2 = identity ? this.app.vault.getMarkdownFiles().filter((file) => {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      return fm?.type === "paper" && typeof fm.source === "string" && paperIdentity(fm.source) === identity;
+    }) : [];
+    if (companion && !matches2.includes(companion)) matches2.push(companion);
+    if (matches2.length > 1) throw new Error(`\u627E\u5230\u591A\u4EFD\u53EF\u80FD\u7684\u4E3B\u7B46\u8A18\uFF1A${matches2.map((f) => f.path).join("\u3001")}\u3002\u8ACB\u5148\u6838\u5C0D\u4F86\u6E90\u8207 PDF\uFF0C\u672A\u8986\u5BEB\u4EFB\u4F55\u7B46\u8A18\u3002`);
+    const existing = matches2[0];
+    if (companion && identity) {
+      const oldSource = this.app.metadataCache.getFileCache(companion)?.frontmatter?.source;
+      if (typeof oldSource === "string" && paperIdentity(oldSource) && paperIdentity(oldSource) !== identity) throw new Error(`\u6B64 PDF \u7684\u4E3B\u7B46\u8A18 ${companion.path} \u5DF2\u8A18\u9304\u4E0D\u540C\u4F86\u6E90\u6216\u7248\u672C\u3002\u8ACB\u6838\u5C0D\u5F8C\u518D\u65B0\u589E\uFF0C\u672A\u6539\u52D5\u539F\u7B46\u8A18\u3002`);
+    }
+    if (existing && pdf) {
+      const old = this.app.metadataCache.getFileCache(existing)?.frontmatter?.pdf;
+      if (typeof old === "string" && old) {
+        const oldPdf = this.app.metadataCache.getFirstLinkpathDest(linkTarget(old), existing.path);
+        if (oldPdf?.path !== pdf.path) throw new Error(`\u6B64\u4F86\u6E90\u5DF2\u6709\u4E3B\u7B46\u8A18 ${existing.path} \u4E26\u9023\u7D50\u5176\u4ED6 PDF\u3002\u8ACB\u6838\u5C0D\u7248\u672C\uFF1B\u539F PDF \u8207\u6279\u6CE8\u672A\u6539\u52D5\u3002`);
+      }
+    }
+    return existing ?? null;
+  }
   async create(input) {
     const stem = safeStem(input.title);
     if (!stem) throw new Error("\u8ACB\u8F38\u5165\u6709\u6548\u7684\u6A19\u984C\u3002");
-    if (input.type === "paper" && input.pdf) {
-      const pdf = this.app.metadataCache.getFirstLinkpathDest(linkTarget(input.pdf), "");
-      const existing = pdf ? this.findCompanion(pdf) : null;
+    if (input.type === "paper") {
+      const existing = this.findPaper(input.pdf, input.source);
       if (existing) {
-        const fm = this.app.metadataCache.getFileCache(existing)?.frontmatter;
-        if (fm?.type !== "paper") throw new Error(`\u6B64 PDF \u5DF2\u7531 ${existing.path} \u8AAA\u660E\uFF0C\u8ACB\u7DE8\u8F2F\u8A72\u7B46\u8A18\u3002`);
+        const fm = this.app.metadataCache.getFileCache(existing)?.frontmatter ?? {};
         const values = {};
         if (input.projects?.length) values.projects = [.../* @__PURE__ */ new Set([...strings(fm.projects ?? fm.project), ...input.projects])];
-        if (input.course) values.course = input.course;
-        if (input.source) values.source = input.source;
+        if (input.course && !fm.course) values.course = input.course;
+        if (input.pdf && !fm.pdf) values.pdf = input.pdf;
+        if (input.source && !fm.source) values.source = input.source;
         if (Object.keys(values).length) await this.update(existing, values);
         return existing;
       }
@@ -310,7 +448,7 @@ var FileActions = class {
     const folder = this.settings().folders[input.capture ? "inbox" : input.type];
     await this.ensureFolder(folder);
     const path = this.unique(folder, `${stem}.md`);
-    const templatePath = (0, import_obsidian2.normalizePath)(`${this.settings().folders.templates}/${TEMPLATES[input.type]}.md`);
+    const templatePath = (0, import_obsidian2.normalizePath)(`${this.settings().folders.templates}/${input.type === "note" && input.kind === "concept" ? "Concept" : TEMPLATES[input.type]}.md`);
     const template = this.app.vault.getFileByPath(templatePath);
     if (!template) throw new Error(`\u627E\u4E0D\u5230\u7BC4\u672C ${templatePath}\u3002\u8ACB\u5728\u8A2D\u5B9A\u4E2D\u6AA2\u67E5\u7BC4\u672C\u8CC7\u6599\u593E\u3002`);
     const raw = await this.app.vault.read(template);
@@ -400,7 +538,7 @@ ${content.trim()}
 };
 
 // src/views/workspace-view.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/ui/components.ts
 var import_obsidian3 = require("obsidian");
@@ -411,8 +549,12 @@ function icon(parent, name, cls = "lr-icon") {
 }
 function run(action) {
   try {
-    Promise.resolve(action()).catch((error) => new import_obsidian3.Notice(error instanceof Error ? error.message : String(error), 9e3));
+    Promise.resolve(action()).catch((error) => {
+      console.error("Learning & Research Workspace", error);
+      new import_obsidian3.Notice(error instanceof Error ? error.message : String(error), 9e3);
+    });
   } catch (error) {
+    console.error("Learning & Research Workspace", error);
     new import_obsidian3.Notice(String(error), 9e3);
   }
 }
@@ -448,12 +590,64 @@ function picker(parent, accept, multiple, onPick) {
   return input;
 }
 
+// src/ui/planning.ts
+var import_obsidian4 = require("obsidian");
+var ProgressModal = class extends import_obsidian4.Modal {
+  constructor(host, entry) {
+    super(host.app);
+    this.host = host;
+    this.entry = entry;
+    this.setTitle(`\u5C08\u6848\u9032\u5EA6 \xB7 ${entry.name}`);
+  }
+  onOpen() {
+    this.contentEl.addClass("lr-modal");
+    this.contentEl.createEl("p", { cls: "lr-modal-intro", text: "\u586B\u5BEB\u4F60\u78BA\u8A8D\u7684\u9032\u5EA6\uFF0C\u6216\u7531 AI \u4F9D\u4F60\u7684\u6BCF\u65E5\u66F4\u65B0\u4FEE\u6539\u5C08\u6848\u7B46\u8A18\u7684 progress\u3002\u7559\u7A7A\u8868\u793A\u5C1A\u672A\u8A2D\u5B9A\u3002" });
+    let input;
+    new import_obsidian4.Setting(this.contentEl).setName("\u9032\u5EA6 %").addText((t) => {
+      input = t.inputEl;
+      input.type = "number";
+      input.min = "0";
+      input.max = "100";
+      input.step = "any";
+      input.setAttribute("aria-label", "\u5C08\u6848\u9032\u5EA6\u767E\u5206\u6BD4");
+      t.setValue(this.entry.progress == null ? "" : String(this.entry.progress));
+    });
+    const error = this.contentEl.createDiv({ cls: "lr-form-error", attr: { role: "alert" } });
+    const actions = this.contentEl.createDiv({ cls: "lr-modal-actions" });
+    button(actions, "\u53D6\u6D88", () => this.close());
+    const save = button(actions, "\u5132\u5B58\u9032\u5EA6", async () => {
+      if (save.disabled) return;
+      const raw = input.value.trim();
+      const value = raw === "" ? void 0 : progressValue(Number(raw));
+      if (input.validity.badInput || raw !== "" && value == null) {
+        error.setText("\u8ACB\u586B\u5BEB 0 \u81F3 100 \u7684\u6578\u5B57\uFF0C\u6216\u7559\u7A7A\u3002");
+        return;
+      }
+      save.disabled = true;
+      try {
+        const file = this.app.vault.getFileByPath(this.entry.path);
+        if (!file) throw new Error("\u5C08\u6848\u5DF2\u79FB\u52D5\u6216\u522A\u9664\uFF0C\u8ACB\u91CD\u65B0\u958B\u555F\u3002");
+        await this.host.actions.update(file, { progress: value });
+        this.close();
+        new import_obsidian4.Notice("\u5DF2\u66F4\u65B0\u5C08\u6848\u9032\u5EA6\u3002");
+      } catch (e) {
+        error.setText(e instanceof Error ? e.message : String(e));
+        save.disabled = false;
+      }
+    }, { cls: "lr-primary" });
+    input.focus();
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
 // src/views/workspace-view.ts
 var VIEW_TYPE = "learning-research-workspace";
 var NAV = [["home", "\u9996\u9801", "Home", "house"], ["courses", "\u8AB2\u7A0B", "Courses", "graduation-cap"], ["research", "\u7814\u7A76", "Research", "flask-conical"], ["papers", "\u8AD6\u6587", "Papers", "file-text"], ["experiments", "\u5BE6\u9A57", "Experiments", "test-tubes"], ["ideas", "\u60F3\u6CD5", "Ideas", "lightbulb"], ["inbox", "\u6536\u4EF6\u5323", "Inbox", "inbox"]];
 var SECTION_TYPES = { courses: "course", research: "project", papers: "paper", experiments: "experiment", ideas: "idea" };
 var GROUPS = [["lecture", "\u8B1B\u7FA9 Lectures"], ["note", "\u7B46\u8A18 Notes"], ["assignment", "\u4F5C\u696D Assignments"], ["resource", "\u8CC7\u6E90 Resources"], ["review", "\u8907\u7FD2 Review"]];
-var WorkspaceView = class extends import_obsidian4.ItemView {
+var WorkspaceView = class extends import_obsidian5.ItemView {
   constructor(leaf, host) {
     super(leaf);
     this.host = host;
@@ -466,6 +660,8 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
   rendered;
   epoch = 0;
   closed = false;
+  taskDraft = "";
+  showCompletedTasks = false;
   getViewType() {
     return VIEW_TYPE;
   }
@@ -518,10 +714,11 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const oldScroll = this.main?.scrollTop ?? 0;
     const focused = this.contentEl.ownerDocument.activeElement;
     const searching = focused?.classList.contains("lr-search-input");
+    const capturing = focused?.classList.contains("lr-task-input");
     const selection = searching ? focused?.selectionStart : null;
     this.epoch++;
     if (this.rendered) this.removeChild(this.rendered);
-    this.rendered = new import_obsidian4.Component();
+    this.rendered = new import_obsidian5.Component();
     this.addChild(this.rendered);
     this.body.empty();
     this.renderSidebar();
@@ -542,6 +739,10 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     else this.renderListing();
     this.main.querySelector("h1")?.setAttribute("tabindex", "-1");
     this.main.scrollTop = oldScroll;
+    if (capturing) {
+      const input = this.body.querySelector(".lr-task-input");
+      input?.focus();
+    }
     if (searching) {
       const input = this.body.querySelector(".lr-search-input");
       input?.focus();
@@ -590,7 +791,7 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const actions = top.createDiv({ cls: "lr-top-actions" });
     button(actions, "\u641C\u5C0B", () => this.host.nativeSearch(), { icon: "search", cls: "lr-quiet", title: "\u641C\u5C0B\u6574\u500B Vault \xB7 Obsidian Search" });
     const create = button(actions, "\u65B0\u589E", () => {
-      const menu = new import_obsidian4.Menu();
+      const menu = new import_obsidian5.Menu();
       menu.addItem((i) => i.setTitle("\u5FEB\u901F\u6536\u96C6 Quick capture").setIcon("inbox").onClick(() => this.host.capture()));
       menu.addSeparator();
       for (const type of TYPES) menu.addItem((i) => i.setTitle(LABELS[type]).setIcon(ICONS[type]).onClick(() => type === "idea" ? this.host.capture(true) : this.host.newObject(type)));
@@ -612,6 +813,7 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const stamp = welcome.createDiv({ cls: "lr-home-stamp" });
     icon(stamp, "sprout");
     stamp.createSpan({ text: "Learning & Research" });
+    this.renderTasks();
     const courses = this.section(this.main, "\u8AB2\u7A0B Courses", "\u70BA\u6BCF\u4E00\u9580\u8AB2\u4FDD\u7559\u6E05\u695A\u7684\u5165\u53E3\u3002", { section: "courses" });
     const current = this.host.index.ofType("course").filter((e) => !["archived", "completed"].includes(e.status));
     if (current.length) {
@@ -634,12 +836,112 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const pinned = this.section(this.main, "\u91CD\u8981\u8CC7\u6599 Pinned", "\u4F60\u89AA\u81EA\u9078\u64C7\u4FDD\u7559\u5728\u624B\u908A\u7684\u5167\u5BB9\u3002");
     this.rows(pinned, recent(this.host.index.all().filter((e) => e.pinned), 6), "\u91CD\u8981\u8CC7\u6599\uFF0C\u7559\u5728\u624B\u908A", "\u5728\u5167\u5BB9\u5217\u6216\u8A73\u60C5\u9801\u9078\u64C7\u7F6E\u9802\uFF0C\u5373\u53EF\u51FA\u73FE\u5728\u9019\u88E1\u3002");
   }
+  renderProgress(parent, entry) {
+    const box = parent.createDiv({ cls: "lr-project-progress" });
+    const label = box.createDiv({ cls: "lr-progress-label" });
+    label.createSpan({ text: entry.progress == null ? "\u9032\u5EA6\u5C1A\u672A\u8A2D\u5B9A" : `\u5C08\u6848\u9032\u5EA6 ${entry.progress}%` });
+    button(label, entry.progress == null ? "\u8A2D\u5B9A\u9032\u5EA6" : "\u66F4\u65B0\u9032\u5EA6", () => new ProgressModal(this.host, entry).open(), { cls: "lr-quiet", title: `\u66F4\u65B0 ${entry.name} \u7684\u9032\u5EA6` });
+    if (entry.progress != null) box.createEl("progress", { attr: { value: String(entry.progress), max: "100", "aria-label": `${entry.name} \u7684\u5C08\u6848\u9032\u5EA6`, "aria-valuetext": `${entry.progress}%` } });
+    else box.createDiv({ cls: "lr-progress-unset", attr: { "aria-hidden": "true" } });
+  }
+  renderTasks() {
+    const block = this.section(this.main, "\u4ECA\u65E5\u8207\u63A5\u4E0B\u4F86 Tasks", "\u624B\u5BEB\u65B0\u589E\uFF0C\u6216\u8B93 AI \u66F4\u65B0\u539F\u59CB\u6E05\u55AE\uFF1B\u5B8C\u6210\u5F8C\u52FE\u9078\u3002");
+    const store = new TaskStore(this.app, `${this.host.settings.folders.note}/Tasks.md`);
+    const form = block.createDiv({ cls: "lr-task-capture" });
+    const input = form.createEl("input", { cls: "lr-task-input", attr: { type: "text", placeholder: "\u65B0\u589E\u5F85\u8FA6\uFF0C\u4F8B\u5982\uFF1A\u95B1\u8B80\u8AD6\u6587\u7B2C\u4E8C\u7BC0", "aria-label": "\u65B0\u589E\u5F85\u8FA6\u5167\u5BB9" } });
+    input.value = this.taskDraft;
+    input.addEventListener("input", () => {
+      this.taskDraft = input.value;
+    });
+    const error = block.createDiv({ cls: "lr-form-error", attr: { role: "alert" } });
+    const add = button(form, "\u65B0\u589E\u5F85\u8FA6", async () => {
+      if (add.disabled) return;
+      add.disabled = true;
+      error.empty();
+      try {
+        await store.add(input.value);
+        this.taskDraft = "";
+        input.value = "";
+        await draw();
+      } catch (e) {
+        error.setText(e instanceof Error ? e.message : String(e));
+      } finally {
+        add.disabled = false;
+      }
+    }, { icon: "plus", cls: "lr-primary" });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        add.click();
+      }
+    });
+    const tools = block.createDiv({ cls: "lr-task-tools" });
+    button(tools, "\u958B\u555F\u539F\u59CB\u6E05\u55AE", async () => {
+      if (!this.app.vault.getFileByPath(store.path)) {
+        error.setText("\u65B0\u589E\u7B2C\u4E00\u9805\u5F85\u8FA6\u5F8C\u6703\u5EFA\u7ACB\u6E05\u55AE\u6A94\u6848\u3002");
+        return;
+      }
+      await this.host.openFile(store.path);
+    }, { icon: "file-pen-line", cls: "lr-quiet" });
+    const show = tools.createEl("label", { cls: "lr-task-show" });
+    const done = show.createEl("input", { attr: { type: "checkbox" } });
+    show.createSpan({ text: "\u986F\u793A\u5DF2\u5B8C\u6210" });
+    done.checked = this.showCompletedTasks;
+    const list = block.createDiv({ cls: "lr-task-list" });
+    let limit = 8;
+    let generation = 0;
+    const epoch = this.epoch;
+    const draw = async () => {
+      const current = ++generation;
+      try {
+        const content = await store.read();
+        if (current !== generation || epoch !== this.epoch || this.closed) return;
+        list.empty();
+        const tasks = parseTasks(content).filter((t) => done.checked || !t.done);
+        if (!tasks.length) {
+          empty(list, "list-checks", done.checked ? "\u9084\u6C92\u6709\u5F85\u8FA6" : "\u76EE\u524D\u6C92\u6709\u672A\u5B8C\u6210\u5F85\u8FA6", "\u6BCF\u4E00\u9805\u90FD\u4FDD\u7559\u70BA\u666E\u901A Markdown \u6838\u53D6\u65B9\u584A\uFF0C\u4E0D\u6703\u81EA\u52D5\u6E05\u7A7A\u3002");
+          return;
+        }
+        for (const task of tasks.slice(0, limit)) {
+          const row = list.createDiv({ cls: `lr-task-row ${task.done ? "is-done" : ""}` });
+          const check = row.createEl("input", { attr: { type: "checkbox", "aria-label": `${task.done ? "\u91CD\u65B0\u958B\u555F" : "\u5B8C\u6210"}\uFF1A${task.text}` } });
+          check.checked = task.done;
+          const text2 = row.createDiv({ cls: "lr-task-text" });
+          void import_obsidian5.MarkdownRenderer.render(this.app, task.text, text2, store.path, this.rendered);
+          check.addEventListener("change", () => run(async () => {
+            check.disabled = true;
+            try {
+              await store.toggle(task);
+              await draw();
+            } catch (e) {
+              check.checked = task.done;
+              error.setText(e instanceof Error ? e.message : String(e));
+            } finally {
+              check.disabled = false;
+            }
+          }));
+        }
+        if (tasks.length > limit) button(list, `\u986F\u793A\u66F4\u591A\uFF08\u9084\u6709 ${tasks.length - limit} \u9805\uFF09`, () => {
+          limit += 20;
+          return draw();
+        }, { cls: "lr-quiet" });
+      } catch (e) {
+        error.setText(e instanceof Error ? e.message : String(e));
+      }
+    };
+    done.addEventListener("change", () => {
+      this.showCompletedTasks = done.checked;
+      limit = 8;
+      void draw();
+    });
+    void draw();
+  }
   card(parent, entry) {
     const el = parent.createEl("article", { cls: `lr-card lr-type-${entry.type}` });
     const top = el.createDiv({ cls: "lr-card-top" });
     icon(top, ICONS[entry.type ?? "note"], "lr-card-icon");
     this.badge(top, entry.status);
-    button(el, entry.name, () => this.open(entry), { cls: "lr-card-title" });
+    button(el, entry.name, () => this.openEntry(entry), { cls: "lr-card-title" });
     const related = this.host.index.related(entry.path, entry.type === "course" ? "course" : "project");
     el.createEl("p", { text: related.length ? `${related.length} \u4EFD\u76F8\u95DC\u8CC7\u6599` : "\u7B49\u5F85\u7B2C\u4E00\u4EFD\u8CC7\u6599", cls: "lr-card-summary" });
     const foot = el.createDiv({ cls: "lr-card-foot" });
@@ -650,16 +952,17 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const el = parent.createEl("article", { cls: "lr-project-card lr-type-project" });
     icon(el, "flask-conical", "lr-card-icon");
     const info = el.createDiv({ cls: "lr-project-info" });
-    button(info, entry.name, () => this.open(entry), { cls: "lr-card-title" });
+    button(info, entry.name, () => this.openEntry(entry), { cls: "lr-card-title" });
     const related = this.host.index.related(entry.path, "project");
     info.createEl("p", { text: [["paper", "papers"], ["note", "notes"], ["experiment", "experiments"], ["idea", "ideas"]].map(([type, label]) => `${related.filter((e) => e.type === type).length} ${label}`).join(" \xB7 ") });
+    this.renderProgress(info, entry);
     this.badge(el, entry.status);
     button(el, "", () => this.host.openFile(entry.path), { icon: "file-pen-line", cls: "lr-icon-button", title: `\u958B\u555F\u539F\u59CB\u7B46\u8A18\uFF1A${entry.name}` });
   }
   badge(parent, status) {
     if (status) parent.createSpan({ cls: `lr-badge ${status === "failed" ? "is-failed" : ""}`, text: STATUS_LABELS[status] ?? status });
   }
-  open(entry) {
+  openEntry(entry) {
     if (["course", "project", "paper"].includes(entry.type ?? "")) this.navigate({ section: "detail", path: entry.path });
     else run(() => this.host.openFile(entry.path));
   }
@@ -667,7 +970,7 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const row = parent.createEl("article", { cls: `lr-row lr-type-${entry.type ?? "file"}` });
     icon(row, entry.type ? ICONS[entry.type] : entry.ext === "pdf" ? "file-text" : ["png", "jpg", "jpeg", "webp", "svg"].includes(entry.ext) ? "image" : "file", "lr-row-icon");
     const info = row.createDiv({ cls: "lr-row-info" });
-    button(info, entry.name, () => this.open(entry), { cls: "lr-row-title" });
+    button(info, entry.name, () => this.openEntry(entry), { cls: "lr-row-title" });
     info.createDiv({ cls: "lr-row-meta", text: `${entry.type ? LABELS[entry.type] : entry.ext.toUpperCase()} \xB7 ${displayDate(entry.mtime)}` });
     this.badge(row, entry.status);
     const actions = row.createDiv({ cls: "lr-row-actions" });
@@ -693,6 +996,8 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     const t = titles[section];
     const h = heading(this.main, t[0], t[1], t[2]);
     if (type) button(h, type === "idea" ? "\u6355\u6349\u60F3\u6CD5" : `\u65B0\u589E${t[0]}`, () => type === "idea" ? this.host.capture(true) : this.host.newObject(type), { icon: "plus", cls: "lr-primary" });
+    if (section === "research") this.renderResearchMap();
+    if (section === "library" && this.route.filter === "note") button(h, "\u65B0\u589E\u6982\u5FF5\u7B46\u8A18", () => this.host.newObject("note", { kind: "concept" }), { icon: "notebook-pen", cls: "lr-primary" });
     if (section === "inbox") this.renderDropzone(this.main);
     const toolbar = this.main.createDiv({ cls: "lr-list-toolbar" });
     const searchWrap = toolbar.createDiv({ cls: "lr-search" });
@@ -701,10 +1006,10 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     input.value = this.route.query ?? "";
     const scope = toolbar.createEl("select", { attr: { "aria-label": "\u9078\u64C7\u6AA2\u8996" } });
     let options = [["all", "\u5168\u90E8 All"]];
-    if (section === "papers") options = [...options, ["inbox", "\u5F85\u6574\u7406 Inbox"], ["reading", "\u95B1\u8B80\u4E2D Reading"], ["recent", "\u6700\u8FD1\u52A0\u5165"], ["by-project", "\u4F9D\u7814\u7A76\u5C08\u6848"], ["by-topic", "\u4F9D\u4E3B\u984C"], ["reference", "\u53C3\u8003 Reference"], ["archived", "\u5C01\u5B58"]];
+    if (section === "papers") options = [...options, ["inbox", "\u5F85\u6574\u7406 Inbox"], ["skimming", "\u7565\u8B80 Skimming"], ["reading", "\u95B1\u8B80\u4E2D Reading"], ["synthesized", "\u5DF2\u6574\u5408 Synthesized"], ["read", "\u5DF2\u8B80 Read"], ["recent", "\u6700\u8FD1\u52A0\u5165"], ["by-project", "\u4F9D\u7814\u7A76\u5C08\u6848"], ["by-topic", "\u4F9D\u4E3B\u984C"], ["reference", "\u53C3\u8003 Reference"], ["archived", "\u5C01\u5B58"]];
     else if (type) options = [...options, ...(type === "course" ? ["active", "planned", "completed", "archived"] : type === "project" ? ["active", "paused", "completed", "archived"] : type === "experiment" ? ["planned", "running", "completed", "failed", "paused"] : ["inbox", "archived"]).map((s) => [s, STATUS_LABELS[s] ?? s])];
     else if (section === "inbox") options = [...options, ["md", "\u7B46\u8A18"], ["pdf", "PDF"], ["images", "\u5716\u7247"]];
-    else if (section === "library") options = [...options, ["note", "\u7B46\u8A18 Notes"], ["resource", "\u8CC7\u6E90 Resources"], ["attachments", "\u9644\u4EF6"]];
+    else if (section === "library") options = [...options, ["note", "\u77E5\u8B58\u8207\u7B46\u8A18 Notes"], ["concept", "\u53EF\u91CD\u7528\u6982\u5FF5 Concepts"], ["resource", "\u8CC7\u6E90 Resources"], ["attachments", "\u9644\u4EF6"]];
     for (const [value, label] of options) scope.createEl("option", { value, text: label });
     scope.value = options.some((o) => o[0] === this.route.filter) ? this.route.filter : "all";
     const count = this.main.createDiv({ cls: "lr-results-count", attr: { "aria-live": "polite" } });
@@ -718,7 +1023,7 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
       if (section === "inbox") entries = entries.filter((e) => isInbox(e, this.host.settings));
       if (type && !["all", "recent", "by-project", "by-topic"].includes(filter)) entries = entries.filter((e) => e.status === filter);
       if (section === "inbox" && filter !== "all") entries = entries.filter((e) => filter === "images" ? ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(e.ext) : e.ext === filter);
-      if (section === "library" && filter !== "all") entries = entries.filter((e) => filter === "attachments" ? e.ext !== "md" : e.type === filter);
+      if (section === "library" && filter !== "all") entries = entries.filter((e) => filter === "attachments" ? e.ext !== "md" : filter === "concept" ? e.type === "note" && e.kind === "concept" : e.type === filter);
       entries = entries.filter((e) => matches(e, input.value));
       entries = filter === "recent" ? [...entries].sort((a, b) => b.ctime - a.ctime) : recent(entries);
       count.setText(`${entries.length} \u500B\u6A94\u6848${entries.length > limit ? ` \xB7 \u986F\u793A\u524D ${limit} \u500B` : ""}`);
@@ -762,6 +1067,22 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
       this.app.workspace.requestSaveLayout();
     });
     draw();
+  }
+  renderResearchMap() {
+    const grid = this.main.createDiv({ cls: "lr-research-map", attr: { "aria-label": "\u7814\u7A76\u8CC7\u6599\u5165\u53E3" } });
+    const areas = [
+      ["\u77E5\u8B58\u8207\u7406\u89E3", "Knowledge", "\u4FDD\u7559\u5B8C\u6574\u601D\u8DEF\uFF1B\u9700\u8981\u91CD\u7528\u6642\u518D\u62C6\u6210\u6982\u5FF5\u3002", "notebook-pen", { section: "library", filter: "note" }, "note"],
+      ["\u8AD6\u6587\u8207\u4F86\u6E90", "Sources", "\u6BCF\u7BC7\u4E00\u4EFD\u4E3B\u7B46\u8A18\uFF0C\u7406\u89E3\u8207\u539F\u6587\u4E92\u76F8\u9023\u7D50\u3002", "file-text", { section: "papers" }, "paper"],
+      ["\u5BE6\u8E10\u8207\u8B49\u64DA", "Practice", "\u4FDD\u5B58\u8A2D\u5B9A\u3001\u7D50\u679C\u8207\u5931\u6557\uFF0C\u9023\u56DE\u7814\u7A76\u554F\u984C\u3002", "test-tubes", { section: "experiments" }, "experiment"]
+    ];
+    for (const [title, en, description, glyph, route, type] of areas) {
+      const card = grid.createEl("article", { cls: `lr-research-area lr-type-${type}` });
+      icon(card, glyph, "lr-card-icon");
+      card.createEl("small", { text: en });
+      button(card, title, () => this.navigate(route), { cls: "lr-card-title" });
+      card.createEl("p", { text: description });
+      card.createSpan({ cls: "lr-muted", text: `${this.host.index.ofType(type).length} \u4EFD\u6A94\u6848` });
+    }
   }
   renderDropzone(parent) {
     const zone = parent.createDiv({ cls: "lr-dropzone" });
@@ -815,7 +1136,7 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
       button(links, file?.basename ?? value, () => {
         if (file) {
           const target = this.host.index.entries.get(file.path);
-          if (target) this.open(target);
+          if (target) this.openEntry(target);
           else run(() => this.host.openFile(file.path));
         }
       }, { icon: file ? "link" : "unlink", cls: "lr-chip", title: file ? file.path : `\u9023\u7D50\u5C1A\u672A\u627E\u5230\uFF1A${value}` });
@@ -837,11 +1158,12 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
     }
   }
   renderProject(entry) {
+    this.renderProgress(this.main, entry);
     const overview = this.section(this.main, "\u7814\u7A76\u5099\u5FD8 Research brief", "\u7814\u7A76\u554F\u984C\u3001\u7576\u524D\u91CD\u9EDE\u8207\u91CD\u8981\u6C7A\u7B56\u3002");
     this.renderMarkdown(overview, entry);
     const related = this.host.index.related(entry.path, "project");
     for (const type of ["paper", "experiment", "note", "idea", "resource"]) {
-      const block = this.section(this.main, LABELS[type], "");
+      const block = this.section(this.main, type === "note" ? "\u77E5\u8B58\u8207\u7B46\u8A18 Notes" : LABELS[type], "");
       button(block, "\u65B0\u589E", () => this.host.newObject(type, { projects: [`[[${entry.path.replace(/\.md$/, "")}]]`] }), { icon: "plus", cls: "lr-section-add" });
       this.rows(block, recent(related.filter((e) => e.type === type)));
     }
@@ -861,9 +1183,18 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
       }, { icon: "columns-2" });
     } else tools.createEl("p", { cls: "lr-muted", text: entry.pdf ? "PDF \u9023\u7D50\u5C1A\u672A\u627E\u5230\uFF0C\u8ACB\u5728\u539F\u59CB\u7B46\u8A18\u4FEE\u6B63 pdf \u5C6C\u6027\u3002" : "\u5C1A\u672A\u9023\u7D50 PDF\u3002\u53EF\u5728\u539F\u59CB\u7B46\u8A18\u7684 pdf \u5C6C\u6027\u52A0\u5165\u6A94\u6848\u9023\u7D50\u3002" });
     if (/^https?:\/\//i.test(entry.source)) tools.createEl("a", { text: "\u958B\u555F\u4F86\u6E90 \u2197", href: entry.source, attr: { target: "_blank", rel: "noopener noreferrer" } });
-    this.renderMarkdown(this.section(this.main, "\u95B1\u8B80\u7B46\u8A18 Reading notes", ""), entry);
-    const related = this.host.index.related(entry.path, "references");
-    this.rows(this.section(this.main, "\u76F8\u95DC\u7B46\u8A18\u8207\u5BE6\u9A57 Related", "\u660E\u78BA\u9023\u7D50\u5230\u9019\u7BC7\u8AD6\u6587\u7684\u5167\u5BB9\u3002"), recent(related));
+    const connect = this.section(this.main, "\u9023\u7D50\u7406\u89E3\u8207\u5BE6\u8E10 Connect", "\u5F9E\u95B1\u8B80\u4E2D\u7559\u4E0B\u6982\u5FF5\u6216\u5BE6\u9A57\u7DDA\u7D22\uFF1B\u4F86\u6E90\u9023\u7D50\u6703\u81EA\u52D5\u4FDD\u7559\u3002");
+    const context = { projects: entry.projects, course: entry.course, body: `
+## \u4F86\u6E90 Source
+
+[[${entry.path.replace(/\.md$/, "")}]]
+` };
+    const actions = connect.createDiv({ cls: "lr-paper-tools" });
+    button(actions, "\u5EFA\u7ACB\u6982\u5FF5\u7B46\u8A18", () => this.host.newObject("note", { ...context, kind: "concept" }), { icon: "notebook-pen" });
+    button(actions, "\u8A18\u4E0B\u5BE6\u9A57\u7DDA\u7D22", () => this.host.newObject("experiment", context), { icon: "test-tubes" });
+    this.renderMarkdown(this.section(this.main, "\u95B1\u8B80\u7B46\u8A18 Reading notes", "\u9010\u9801\u5F15\u7528\u7559\u5728\u4E3B\u7B46\u8A18\uFF1B\u539F\u6587\u8207\u81EA\u5DF1\u7684\u89E3\u8B80\u5206\u958B\u5BEB\u3002"), entry);
+    const related = this.host.index.connected(entry.path);
+    this.rows(this.section(this.main, "\u76F8\u95DC\u7B46\u8A18\u8207\u5BE6\u9A57 Related", "\u8207\u9019\u7BC7\u8AD6\u6587\u4E92\u76F8\u9023\u7D50\u7684\u7B46\u8A18\u8207\u5BE6\u9A57\u3002"), recent(related));
   }
   renderMarkdown(parent, entry) {
     const el = parent.createDiv({ cls: "lr-note-preview markdown-rendered" });
@@ -874,16 +1205,16 @@ var WorkspaceView = class extends import_obsidian4.ItemView {
       if (!file) return;
       const content = await this.app.vault.cachedRead(file);
       if (this.closed || epoch !== this.epoch) return;
-      const body = content.slice((0, import_obsidian4.getFrontMatterInfo)(content).contentStart).replace(/^\s*# [^\n]+\n/, "").trim();
+      const body = content.slice((0, import_obsidian5.getFrontMatterInfo)(content).contentStart).replace(/^\s*# [^\n]+\n/, "").trim();
       if (!body.replace(/<!--[\s\S]*?-->/g, "").replace(/^#+[^\n]*$/gm, "").trim()) el.createEl("p", { cls: "lr-muted", text: "\u5728\u539F\u59CB\u7B46\u8A18\u4E2D\u5BEB\u4E0B\u5167\u5BB9\uFF0C\u9019\u88E1\u6703\u540C\u6B65\u986F\u793A\u3002" });
-      else await import_obsidian4.MarkdownRenderer.render(this.app, body, el, entry.path, component);
+      else await import_obsidian5.MarkdownRenderer.render(this.app, body, el, entry.path, component);
     });
   }
 };
 
 // src/ui/modals.ts
-var import_obsidian5 = require("obsidian");
-var FilePicker = class extends import_obsidian5.FuzzySuggestModal {
+var import_obsidian6 = require("obsidian");
+var FilePicker = class extends import_obsidian6.FuzzySuggestModal {
   constructor(app, items, choose) {
     super(app);
     this.items = items;
@@ -901,7 +1232,7 @@ var FilePicker = class extends import_obsidian5.FuzzySuggestModal {
   }
 };
 function relation(parent, host, label, type, values, multiple, change) {
-  const setting = new import_obsidian5.Setting(parent).setName(label).setDesc(multiple ? "\u9078\u586B\uFF0C\u53EF\u9023\u7D50\u591A\u500B\u7814\u7A76\u5C08\u6848\u3002" : "\u9078\u586B\uFF0C\u9023\u7D50\u6240\u5C6C\u8AB2\u7A0B\u3002");
+  const setting = new import_obsidian6.Setting(parent).setName(label).setDesc(multiple ? "\u9078\u586B\uFF0C\u53EF\u9023\u7D50\u591A\u500B\u7814\u7A76\u5C08\u6848\u3002" : "\u9078\u586B\uFF0C\u9023\u7D50\u6240\u5C6C\u8AB2\u7A0B\u3002");
   const chips = setting.controlEl.createDiv({ cls: "lr-link-chips" });
   const draw = () => {
     chips.empty();
@@ -918,7 +1249,7 @@ function relation(parent, host, label, type, values, multiple, change) {
       return f ? [f] : [];
     });
     if (!files.length) {
-      new import_obsidian5.Notice(type === "course" ? "\u5C1A\u7121\u8AB2\u7A0B\uFF0C\u4E4B\u5F8C\u53EF\u518D\u52A0\u5165\u3002" : "\u5C1A\u7121\u7814\u7A76\u5C08\u6848\uFF0C\u4E4B\u5F8C\u53EF\u518D\u52A0\u5165\u3002");
+      new import_obsidian6.Notice(type === "course" ? "\u5C1A\u7121\u8AB2\u7A0B\uFF0C\u4E4B\u5F8C\u53EF\u518D\u52A0\u5165\u3002" : "\u5C1A\u7121\u7814\u7A76\u5C08\u6848\uFF0C\u4E4B\u5F8C\u53EF\u518D\u52A0\u5165\u3002");
       return;
     }
     new FilePicker(host.app, files, (file) => {
@@ -929,7 +1260,7 @@ function relation(parent, host, label, type, values, multiple, change) {
     }).open();
   }));
 }
-var NewObjectModal = class extends import_obsidian5.Modal {
+var NewObjectModal = class extends import_obsidian6.Modal {
   constructor(host, type, context = {}) {
     super(host.app);
     this.host = host;
@@ -949,7 +1280,7 @@ var NewObjectModal = class extends import_obsidian5.Modal {
     this.contentEl.addClass("lr-modal");
     this.contentEl.createEl("p", { cls: "lr-modal-intro", text: "\u5148\u547D\u540D\uFF0C\u5C31\u53EF\u4EE5\u958B\u59CB\u3002\u5176\u4ED6\u8CC7\u6599\u96A8\u6642\u88DC\u5145\u3002" });
     let titleInput;
-    new import_obsidian5.Setting(this.contentEl).setName("\u6A19\u984C Title").addText((t) => {
+    new import_obsidian6.Setting(this.contentEl).setName("\u6A19\u984C Title").addText((t) => {
       titleInput = t.inputEl;
       t.setPlaceholder("\u8F38\u5165\u6A19\u984C").onChange((v) => this.title = v);
     });
@@ -975,6 +1306,11 @@ var NewObjectModal = class extends import_obsidian5.Modal {
         }
       });
       button(controls, "\u532F\u5165 PDF", () => input.click(), { icon: "upload" });
+      button(controls, "\u6E05\u9664 PDF \u9078\u64C7", () => {
+        this.pdf = "";
+        this.pending = void 0;
+        selected.setText("PDF \u70BA\u9078\u586B\uFF0C\u4E5F\u53EF\u4EE5\u5148\u5EFA\u7ACB\u95B1\u8B80\u7B46\u8A18\u3002");
+      }, { icon: "x" });
     }
     const details = this.contentEl.createEl("details", { cls: "lr-more" });
     details.createEl("summary", { text: "\u95DC\u806F\u8207\u4F86\u6E90 \xB7 Optional" });
@@ -982,7 +1318,7 @@ var NewObjectModal = class extends import_obsidian5.Modal {
       relation(details, this.host, "\u7814\u7A76\u5C08\u6848 Projects", "project", this.projects, true, (v) => this.projects = v);
       relation(details, this.host, "\u8AB2\u7A0B Course", "course", this.course ? [this.course] : [], false, (v) => this.course = v[0] ?? "");
     }
-    if (this.type === "paper" || this.type === "resource") new import_obsidian5.Setting(details).setName("\u4F86\u6E90 URL").addText((t) => t.setPlaceholder("https://\u2026").onChange((v) => this.source = v));
+    if (this.type === "paper" || this.type === "resource") new import_obsidian6.Setting(details).setName("\u4F86\u6E90 URL").addText((t) => t.setPlaceholder("https://\u2026").onChange((v) => this.source = v));
     const error = this.contentEl.createDiv({ cls: "lr-form-error", attr: { role: "alert" } });
     const footer = this.contentEl.createDiv({ cls: "lr-modal-actions" });
     button(footer, "\u53D6\u6D88", () => this.close());
@@ -999,6 +1335,7 @@ var NewObjectModal = class extends import_obsidian5.Modal {
       }
       submit.disabled = true;
       try {
+        if (this.type === "paper" && this.pending && this.host.actions.findPaper("", this.source)) throw new Error("\u6B64\u4F86\u6E90\u5DF2\u6709\u4E3B\u7B46\u8A18\u3002\u8ACB\u53D6\u6D88\u532F\u5165 PDF \u518D\u958B\u555F\u539F\u7B46\u8A18\uFF1B\u65B0\u7248\u672C\u8ACB\u4F7F\u7528\u542B\u7248\u672C\u865F\u7684\u4F86\u6E90\u3002");
         if (this.pending) {
           const [file2] = await this.host.actions.importFiles([this.pending], this.host.settings.folders.attachments);
           this.pdf = `[[${file2.path}]]`;
@@ -1024,7 +1361,7 @@ var NewObjectModal = class extends import_obsidian5.Modal {
     this.contentEl.empty();
   }
 };
-var CaptureModal = class extends import_obsidian5.Modal {
+var CaptureModal = class extends import_obsidian6.Modal {
   constructor(host, idea = false) {
     super(host.app);
     this.host = host;
@@ -1044,7 +1381,7 @@ var CaptureModal = class extends import_obsidian5.Modal {
       try {
         await this.host.actions.capture(area.value, this.idea);
         this.close();
-        new import_obsidian5.Notice("\u5DF2\u5B58\u5165 Inbox\u3002");
+        new import_obsidian6.Notice("\u5DF2\u5B58\u5165 Inbox\u3002");
       } catch (e) {
         error.setText(String(e));
         submit.disabled = false;
@@ -1062,7 +1399,7 @@ var CaptureModal = class extends import_obsidian5.Modal {
     this.contentEl.empty();
   }
 };
-var MetadataModal = class extends import_obsidian5.Modal {
+var MetadataModal = class extends import_obsidian6.Modal {
   constructor(host, entry, organizing = false) {
     super(host.app);
     this.host = host;
@@ -1086,7 +1423,7 @@ var MetadataModal = class extends import_obsidian5.Modal {
     this.contentEl.addClass("lr-modal");
     if (this.organizing) this.contentEl.createEl("p", { cls: "lr-modal-intro", text: this.entry.ext === "md" ? "\u9078\u64C7\u985E\u578B\u8207\u6B78\u5C6C\uFF0C\u4FDD\u7559\u5168\u6587\u4E26\u79FB\u81F3\u5C0D\u61C9\u8CC7\u6599\u593E\u3002" : "\u539F\u59CB\u9644\u4EF6\u5B8C\u6574\u4FDD\u7559\uFF1B\u5EFA\u7ACB\u4E00\u4EFD\u8AAA\u660E\u7B46\u8A18\uFF0C\u4E26\u628A\u9644\u4EF6\u79FB\u81F3 Attachments\u3002" });
     let statusArea;
-    new import_obsidian5.Setting(this.contentEl).setName("\u985E\u578B Type").addDropdown((d) => {
+    new import_obsidian6.Setting(this.contentEl).setName("\u985E\u578B Type").addDropdown((d) => {
       for (const type of TYPES.filter((t) => this.entry.ext === "md" || t === "resource" || t === "paper" && this.entry.ext === "pdf")) d.addOption(type, LABELS[type]);
       d.setValue(this.type).onChange((v) => {
         this.type = v;
@@ -1098,7 +1435,7 @@ var MetadataModal = class extends import_obsidian5.Modal {
     statusArea = this.contentEl.createDiv();
     const drawStatus = () => {
       statusArea.empty();
-      new import_obsidian5.Setting(statusArea).setName("\u72C0\u614B Status").addDropdown((d) => {
+      new import_obsidian6.Setting(statusArea).setName("\u72C0\u614B Status").addDropdown((d) => {
         d.addOption("", "\u672A\u6307\u5B9A");
         for (const status of STATUSES[this.type]) d.addOption(status, `${STATUS_LABELS[status] ?? status} \xB7 ${status}`);
         if (this.status && !STATUSES[this.type].includes(this.status)) d.addOption(this.status, this.status);
@@ -1110,8 +1447,8 @@ var MetadataModal = class extends import_obsidian5.Modal {
     relation(this.contentEl, this.host, "\u8AB2\u7A0B Course", "course", this.course ? [this.course] : [], false, (v) => this.course = v[0] ?? "");
     const more = this.contentEl.createEl("details", { cls: "lr-more" });
     more.createEl("summary", { text: "\u5206\u985E \xB7 Optional" });
-    new import_obsidian5.Setting(more).setName("\u8AB2\u7A0B\u6750\u6599").addDropdown((d) => d.addOptions({ "": "\u4E00\u822C", "lecture": "\u8B1B\u7FA9 Lecture", "assignment": "\u4F5C\u696D Assignment", "review": "\u8907\u7FD2 Review" }).setValue(this.kind).onChange((v) => this.kind = v));
-    new import_obsidian5.Setting(more).setName("\u4E3B\u984C Topics").setDesc("\u4EE5\u9017\u865F\u5206\u9694\uFF0C\u7121\u9700\u9810\u5148\u5EFA\u7ACB\u5206\u985E\u3002").addText((t) => t.setValue(this.topics).onChange((v) => this.topics = v));
+    new import_obsidian6.Setting(more).setName("\u7B46\u8A18\u7528\u9014 Kind").addDropdown((d) => d.addOptions({ "": "\u4E00\u822C", "concept": "\u53EF\u91CD\u7528\u6982\u5FF5 Concept", "lecture": "\u8B1B\u7FA9 Lecture", "assignment": "\u4F5C\u696D Assignment", "review": "\u8907\u7FD2 Review" }).setValue(this.kind).onChange((v) => this.kind = v));
+    new import_obsidian6.Setting(more).setName("\u4E3B\u984C Topics").setDesc("\u4EE5\u9017\u865F\u5206\u9694\uFF0C\u7121\u9700\u9810\u5148\u5EFA\u7ACB\u5206\u985E\u3002").addText((t) => t.setValue(this.topics).onChange((v) => this.topics = v));
     const error = this.contentEl.createDiv({ cls: "lr-form-error", attr: { role: "alert" } });
     const footer = this.contentEl.createDiv({ cls: "lr-modal-actions" });
     button(footer, "\u53D6\u6D88", () => this.close());
@@ -1125,7 +1462,7 @@ var MetadataModal = class extends import_obsidian5.Modal {
         if (this.organizing) await this.host.actions.organize(file, this.type, values);
         else await this.host.actions.update(file, values);
         this.close();
-        new import_obsidian5.Notice("\u5DF2\u5132\u5B58\u3002");
+        new import_obsidian6.Notice("\u5DF2\u5132\u5B58\u3002");
       } catch (e) {
         error.setText(e instanceof Error ? e.message : String(e));
         submit.disabled = false;
@@ -1138,40 +1475,40 @@ var MetadataModal = class extends import_obsidian5.Modal {
 };
 
 // src/settings.ts
-var import_obsidian6 = require("obsidian");
-var WorkspaceSettingsTab = class extends import_obsidian6.PluginSettingTab {
+var import_obsidian7 = require("obsidian");
+var WorkspaceSettingsTab = class extends import_obsidian7.PluginSettingTab {
   constructor(app, workspacePlugin) {
     super(app, workspacePlugin);
     this.workspacePlugin = workspacePlugin;
   }
   display() {
     this.containerEl.empty();
-    new import_obsidian6.Setting(this.containerEl).setName("\u555F\u52D5\u6642\u958B\u555F Workspace").setDesc("\u4FDD\u7559\u5176\u4ED6\u5206\u9801\uFF0C\u9032\u5165\u5DE5\u4F5C\u5340\u9996\u9801\u3002").addToggle((t) => t.setValue(this.workspacePlugin.settings.openOnStartup).onChange(async (value) => {
+    new import_obsidian7.Setting(this.containerEl).setName("\u555F\u52D5\u6642\u958B\u555F Workspace").setDesc("\u4FDD\u7559\u5176\u4ED6\u5206\u9801\uFF0C\u9032\u5165\u5DE5\u4F5C\u5340\u9996\u9801\u3002").addToggle((t) => t.setValue(this.workspacePlugin.settings.openOnStartup).onChange(async (value) => {
       this.workspacePlugin.settings.openOnStartup = value;
       await this.workspacePlugin.saveSettings();
     }));
-    new import_obsidian6.Setting(this.containerEl).setName("\u91CD\u5EFA\u7D22\u5F15").setDesc("\u7D22\u5F15\u53EA\u5B58\u5728\u8A18\u61B6\u9AD4\u4E2D\uFF1B\u6B64\u64CD\u4F5C\u4E0D\u6539\u52D5\u4EFB\u4F55\u5167\u5BB9\u3002").addButton((b) => b.setButtonText("\u91CD\u5EFA").onClick(async () => {
+    new import_obsidian7.Setting(this.containerEl).setName("\u91CD\u5EFA\u7D22\u5F15").setDesc("\u7D22\u5F15\u53EA\u5B58\u5728\u8A18\u61B6\u9AD4\u4E2D\uFF1B\u6B64\u64CD\u4F5C\u4E0D\u6539\u52D5\u4EFB\u4F55\u5167\u5BB9\u3002").addButton((b) => b.setButtonText("\u91CD\u5EFA").onClick(async () => {
       await this.workspacePlugin.index.rebuild();
-      new import_obsidian6.Notice("\u7D22\u5F15\u5DF2\u91CD\u5EFA\u3002");
+      new import_obsidian7.Notice("\u7D22\u5F15\u5DF2\u91CD\u5EFA\u3002");
     }));
-    new import_obsidian6.Setting(this.containerEl).setName("\u8CC7\u6599\u593E\u8207\u7BC4\u672C").setHeading();
+    new import_obsidian7.Setting(this.containerEl).setName("\u8CC7\u6599\u593E\u8207\u7BC4\u672C").setHeading();
     this.containerEl.createEl("p", { text: "\u9019\u4E9B\u4F4D\u7F6E\u6C7A\u5B9A\u65B0\u5167\u5BB9\u7684\u5B58\u653E\u8655\u3002\u66F4\u6539\u8A2D\u5B9A\u4E0D\u6703\u642C\u79FB\u73FE\u6709\u6A94\u6848\uFF1B\u4EE5 type \u8207\u9023\u7D50\u6A19\u793A\u7684\u5167\u5BB9\u4ECD\u53EF\u88AB\u627E\u5230\u3002", cls: "setting-item-description" });
     for (const [key, value] of Object.entries(this.workspacePlugin.settings.folders)) {
       const label = key === "inbox" ? "Inbox" : key === "attachments" ? "Attachments" : key === "templates" ? "Templates" : LABELS[key];
-      new import_obsidian6.Setting(this.containerEl).setName(label).addText((t) => {
+      new import_obsidian7.Setting(this.containerEl).setName(label).addText((t) => {
         t.setValue(value);
         t.inputEl.addEventListener("change", () => {
           void (async () => {
             const folder = t.getValue().trim().replace(/\/$/, "");
             if (!validateFolder(folder)) {
-              new import_obsidian6.Notice("\u8ACB\u4F7F\u7528 Vault \u5167\u7684\u76F8\u5C0D\u8CC7\u6599\u593E\u8DEF\u5F91\u3002");
+              new import_obsidian7.Notice("\u8ACB\u4F7F\u7528 Vault \u5167\u7684\u76F8\u5C0D\u8CC7\u6599\u593E\u8DEF\u5F91\u3002");
               t.setValue(value);
               return;
             }
             this.workspacePlugin.settings.folders[key] = folder;
             await this.workspacePlugin.saveSettings();
             await this.workspacePlugin.index.rebuild();
-          })().catch((error) => new import_obsidian6.Notice(String(error)));
+          })().catch((error) => new import_obsidian7.Notice(String(error)));
         });
       });
     }
@@ -1179,7 +1516,7 @@ var WorkspaceSettingsTab = class extends import_obsidian6.PluginSettingTab {
 };
 
 // src/main.ts
-var WorkspacePlugin = class extends import_obsidian7.Plugin {
+var WorkspacePlugin = class extends import_obsidian8.Plugin {
   settings = structuredClone(DEFAULT_SETTINGS);
   index;
   actions;
@@ -1207,7 +1544,7 @@ var WorkspacePlugin = class extends import_obsidian7.Plugin {
       if (!params.vault || params.vault === this.app.vault.getName()) run(() => this.openWorkspace());
     });
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
-      if (!(file instanceof import_obsidian7.TFile)) return;
+      if (!(file instanceof import_obsidian8.TFile)) return;
       const entry = this.index.entries.get(file.path);
       if (!entry) return;
       if (["course", "project", "paper"].includes(entry.type ?? "")) menu.addItem((i) => i.setTitle("\u5728\u5DE5\u4F5C\u5340\u4E2D\u6AA2\u8996").setIcon("panels-top-left").onClick(() => run(() => this.openWorkspace({ section: "detail", path: file.path }))));
@@ -1265,6 +1602,6 @@ var WorkspacePlugin = class extends import_obsidian7.Plugin {
   }
   async importInbox(files) {
     const imported = await this.actions.importFiles(files);
-    new import_obsidian7.Notice(`\u5DF2\u532F\u5165 ${imported.length} \u500B\u6A94\u6848\u81F3 Inbox\u3002`);
+    new import_obsidian8.Notice(`\u5DF2\u532F\u5165 ${imported.length} \u500B\u6A94\u6848\u81F3 Inbox\u3002`);
   }
 };

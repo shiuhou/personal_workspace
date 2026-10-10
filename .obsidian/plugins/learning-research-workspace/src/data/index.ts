@@ -13,10 +13,14 @@ export class VaultIndex extends Component {
   private courseMembers = new Map<string, Set<string>>();
   private references = new Map<string, Set<string>>();
   private generation = 0;
+  private pendingMetadata = new Set<string>();
   constructor(private app: App, private settings: () => WorkspaceSettings) { super(); }
   onload() {
     this.registerEvent(this.app.metadataCache.on('changed', file => { this.put(file); this.schedule(); }));
-    this.registerEvent(this.app.metadataCache.on('resolved', () => this.schedule()));
+    this.registerEvent(this.app.metadataCache.on('resolved', () => {
+      for(const file of this.app.vault.getFiles())this.put(file);
+      this.schedule();
+    }));
     this.registerEvent(this.app.vault.on('create', file => { if (file instanceof TFile) { this.put(file); this.schedule(); } }));
     this.registerEvent(this.app.vault.on('modify', file => { if(file instanceof TFile)this.put(file); this.schedule(); }));
     this.registerEvent(this.app.vault.on('delete', file => {
@@ -35,6 +39,8 @@ export class VaultIndex extends Component {
   private put(file: TFile) {
     if (!isContentPath(file.path,this.settings())) { this.entries.delete(file.path); return; }
     const cache = this.app.metadataCache.getFileCache(file);
+    if(file.extension.toLowerCase()==='md'&&!cache)this.pendingMetadata.add(file.path);
+    else this.pendingMetadata.delete(file.path);
     this.entries.set(file.path,normalizeEntry({path:file.path,name:file.basename,ext:file.extension.toLowerCase(),mtime:file.stat.mtime,ctime:file.stat.ctime},cache?.frontmatter,
       [...(cache?.links ?? []),...(cache?.embeds ?? []),...(cache?.frontmatterLinks ?? [])].map(link=>link.link)));
   }
@@ -53,7 +59,11 @@ export class VaultIndex extends Component {
   }
   private schedule() {
     clearTimeout(this.timer);
-    this.timer=setTimeout(()=>{ if(!this.stopped) { this.relate(); this.emit(); } },120);
+    this.timer=setTimeout(()=>{ if(!this.stopped) {
+      // Rename can precede MetadataCache moving its entry to the new path.
+      for(const path of [...this.pendingMetadata]){const file=this.app.vault.getFileByPath(path);if(file)this.put(file);else this.pendingMetadata.delete(path);}
+      this.relate(); this.emit();
+    } },120);
   }
   private emit() { for(const fn of this.listeners) fn(); }
   resolve(value: string, source: string): TFile | null {
@@ -72,6 +82,14 @@ export class VaultIndex extends Component {
       const course=this.resolve(entry.course,entry.path); if(course) add(this.courseMembers,course.path,entry.path);
       for(const value of entry.links) { const dest=this.resolve(value,entry.path); if(dest) add(this.references,dest.path,entry.path); }
     }
+  }
+  connected(path:string) {
+    const entries=new Map(this.related(path,'references').map(e=>[e.path,e]));
+    for(const value of this.entries.get(path)?.links ?? []){
+      const file=this.resolve(value,path);const entry=file?this.entries.get(file.path):undefined;
+      if(entry&&entry.path!==path)entries.set(entry.path,entry);
+    }
+    return [...entries.values()].filter(e=>e.type==='note'||e.type==='experiment'||e.type==='idea'||e.type==='paper');
   }
   all() { return [...this.entries.values()]; }
   ofType(type:ObjectType) { return this.all().filter(e=>e.type===type); }

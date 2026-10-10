@@ -2,7 +2,7 @@
 
 Local-first Personal Learning & Research Workspace，建於 Obsidian 之內。普通 Markdown、YAML 與附件是資料來源；單一自訂插件提供應用式導覽，編輯、PDF、搜尋與連結使用 Obsidian 原生功能。
 
-**目前是開發進度存檔，尚未完成實機驗收。** 建置及 25 項自動測試通過；Obsidian 1.14.4 的 Workspace 載入仍有待修復問題。不要把目前版本視為已完成的 V1。
+已融入科研設計的「知識／來源／實踐」分工。載入與重新命名索引問題已修復；37 項測試通過，並已在 Obsidian 1.14.4 驗證主要建立、關聯、PDF 並排與明暗模式。驗證範圍及限制見 [VALIDATION](99%20System/Documentation/VALIDATION.md)。
 
 - [接續開發／已知問題](99%20System/Documentation/HANDOFF.md)
 - [工作區使用與資料模型](99%20System/Documentation/README.md)

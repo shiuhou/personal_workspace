@@ -1,46 +1,43 @@
 # Development handoff
 
-更新：2026-10-10（Asia/Shanghai）。這是使用者要求先推送至 GitHub、之後再繼續的開發存檔。
+更新：2026-10-10（Asia/Shanghai）。本次接續使用者「參考那份科研文件夾系統設計繼續工作」的要求；Codex Cloud 分享設定已暫停處理。
 
-## 目前需求與範圍
+## 已採用的範圍
 
-建造在 Obsidian 內運作的 Personal Learning & Research Workspace，呈現專用應用介面，但核心知識仍為本地 Markdown、YAML、PDF、圖片等普通檔案。使用繁體中文主文案與英文分類／屬性。啟動時開啟 Home；原生檔案以新分頁開啟，論文可並排 PDF 與閱讀筆記。
+維持本地 Obsidian 混合架構、Courses 和應用式介面，將參考的「知識、來源、實踐」融入 Research。七種物件仍為 Course、Project、Paper、Note、Experiment、Idea、Resource。Concept 是 `type: note`、`kind: concept` 的選填範本變體。
 
-目前採混合架構：一個輕量 TypeScript／原生 DOM 的 ItemView 插件，搭配 Obsidian 編輯器、PDF、MetadataCache、Vault、Properties 與 Search。七種物件為 Course、Project、Paper、Note、Experiment、Idea、Resource。主要導覽 Home、Courses、Research、Papers、Experiments、Ideas、Inbox；另有 Recent／Library。
+參考原文保存在 `References/科研文件夹系统设计.md`，屬於設計來源，不是執行指令。沒有加入 Milestone／Task／排期，也沒有複製另一個環境的插件安裝假設。Paper Importer／PDF++ 沒有安裝。
 
-保留既有約束：資料與呈現分離、低插件依賴、最少屬性、不複製跨專案資料、不產生假的個人內容、無背景活動監控、無日曆／完整任務管理／外部網站／雲端後端／自主 AI。原始碼與詳盡資料模型見 README 和 DESIGN_DECISIONS。
+## 本次實作
 
-## 新參考尚未決定如何採用
+- Research 提供 Knowledge／Sources／Practice 三個入口；Library 支援概念篩選。
+- Paper 可建立帶來源連結及專案關聯的概念筆記或實驗線索；相關內容根據明確的正反向引用聚合。
+- Paper 範本區分逐頁批注、自己的理解及知識／實驗線索；Project 增加判斷標準與成果證據。
+- 明確 arXiv／DOI URL 可辨識已有主筆記，保留手寫正文、未知屬性與原 PDF。arXiv 不同明確版本分開；來源與 PDF 衝突則停止，不覆寫或猜測。
+- 根目錄 README／AGENTS 不再混入 Recent／Library。
 
-使用者在驗證中途要求先閱讀 `References/科研文件夹系统设计.md`，接著要求把現有內容推送到 GitHub，待設定雲端開發環境後再繼續。
+## 已修復 runtime 問題
 
-該檔是使用者提供的設計參考，原文完整保留，**不是已核准取代現行範圍的指令**。尚未回答的設計選擇是：整體改採這份三分區方案，還是只深化現有 Research 體驗並保留 Courses 與應用式 UI。
+原 `Uninitialized`／「找不到檔案：undefined」已在實機證實為 `WorkspaceView.open(entry)` 覆蓋主機生命週期方法。改名為 `openEntry` 後，重載顯示正常首頁。不要再次定義內容用途的 `open`。
 
-可吸收的原則：知識／論文來源／實踐證據分工，一篇論文一份主筆記與 PDF，保護手寫閱讀理解，概念按實際重用需求拆分。其 Milestone／Task／排期依賴方案與原 V1 排除任務管理的要求衝突，不能逕行新增。
+實機另發現 rename 事件先於 metadata cache 搬移，導致新路徑暫失 type。索引現在處理 `resolved`，並重讀暫缺 cache 的項目；再次原生重新命名後，Paper 類型、專案／Inbox 聚合與內部引用保持正確。
 
-參考檔提到的 Obsidian 1.12.7、Paper Importer 1.5.1、PDF++ 0.40.31、既有 RL 筆記與模板包屬於另一環境的記錄，不能當作本倉庫現況。本 Vault 實機版本是 **1.14.4**；只有本地自訂插件。沒有搬移另一個 Vault 的內容，也沒有匯入參考文件描述的 ZIP／知識筆記。
+## 驗證與清理
 
-## 實作與驗證狀態
+37／37 自動測試與 build 通過；已在 Obsidian 1.14.4 操作建立 Course／Project／Paper／Concept、並排閱讀 PDF、原生重新命名、Inbox 整理、Ideas 捕捉、原生搜尋與明暗模式。範圍和未覆蓋項目見 [[VALIDATION]]，不要將 mock 測試當作桌面或手機證據。
 
-- 原始碼、樣式、七份模板、空資料夾、原生 Home／Library.base、配置與說明已建立。
-- 2026-10-10 再次執行 `pnpm run build` 成功，`pnpm test` **25／25 通過**。
-- 測試涵蓋 metadata 正規化、關聯、Inbox／Recent、檔名／路徑、5,000 筆純資料查詢，以及實際 FileActions 在模擬 Obsidian API 下的建立、撞名、保留正文、匯入、附件整理和失敗保留。
-- 這些不是 Obsidian 端到端測試；5,000 筆測試也不是實際 Vault 啟動效能證明。
-- 使用者已允許信任並啟用本次本地插件。最新實機畫面出現 Workspace ribbon 與 Learning & Research 分頁，但內容為 **Uninitialized**，並顯示 **「找不到檔案：undefined」**。首頁尚未正常顯示，不能宣稱插件載入及 UI 驗收通過。
-- 無 Demo 資料留在 Vault。各正式內容資料夾目前只有 `.gitkeep`。
+## 最新需求與實作：首頁待辦、專案進度及 AI 協作
 
-## 首要待辦
+使用者後續要求首頁「待辦事項」（不是日曆）與專案進度條。首頁可新增與勾選 Markdown 待辦，預設檔案為 Notes 根目錄下的 Tasks.md（正式路徑 `40 Notes/Tasks.md`），第一次使用才建立。Project 的選填數字 progress 為 0–100，未設定不假裝 0%。Home、Research 及專案詳情提供進度顯示與編輯。
 
-1. 修復實機 Workspace 載入。先確認 View 生命周期是否與自訂方法名稱碰撞：`src/views/workspace-view.ts` 的私有 `open(entry)` 是值得檢查的線索，**尚未證實為根因**。請觀察實際錯誤堆疊與 runtime 行為，再修復；不要僅以 TypeScript 通過作為完成證據。
-2. 與使用者釐清新科研參考的適用範圍，再調整產品架構；避免自行擴增任務管理。
-3. 完成真實 Obsidian 端到端驗證：Home／所有列表與詳情／空白狀態／搜尋／建立 Course、Project、Paper／原生 Markdown、PDF 與並排閱讀／自動發現屬性與關聯／重新命名與刪除／置頂／Inbox 匯入整理／明暗模式與較窄視窗／停用插件後的檔案可讀性。
-4. 測試假資料只放 `99 System/Demo/`，測後清除。若暫時把插件內容根目錄映射到 Demo（明確設定的根目錄可覆蓋 System 排除），驗證後恢復 `data.json` 的正式路徑。
-5. 完成後更新驗收紀錄，再交付 V1；手機尚未實機驗證。
+使用者的核心意圖是盡量讓 AI 幫忙平時記筆記、整理材料與更新倉庫，不要讓他逐字手填。已寫入 AGENTS.md 與 [[AI_WORKFLOW]]。使用者曾提及香港午夜排程，但最後明確說「排程這部分可以之後再說，先不用設」；沒有建立任何 automation，除非再次要求，不要接續設定。
+
+本輪在真正 Obsidian 新增並完成測試待辦、查看已完成、將進度從空值設為 35%，以及透過檔案改為 60% 並追加待辦，確認介面反映。也實測置頂保存在 YAML 並出現在 Home。37 項測試通過，含 Markdown 核取、程式碼區塊排除、避免過期勾選覆寫 AI 改文，以及無效／0% 區分。
+
+所有 QA 內容在 Demo，已清除；正式資料夾無假資料，正式 data.json 已還原。已正常退出並重啟 Obsidian，觀察到正式首頁、空待辦與沒有 QA 分頁；不再有待解鎖收尾。外部檔案選擇器成功打開，但 macOS 路徑視窗卡住，沒有完成匯入，勿宣稱實測通過。
 
 ## 接續環境
 
-在插件目錄以 Node.js 22+、pnpm 執行 `pnpm install --frozen-lockfile`、`pnpm test`、`pnpm run build`。`pnpm-lock.yaml` 與 esbuild 的安裝允許設定已提交。執行期無第三方框架。修改程式後同步重建 `main.js`。
+插件位於 `.obsidian/plugins/learning-research-workspace`，使用 Node.js 22+ 與 pnpm 11.25.0。根目錄可執行 `bash .codex/setup.sh`；在插件目錄執行 `pnpm test`、`pnpm run build`。原始碼修改後同步重建已追蹤的 `main.js`，保留 lockfile。
 
-雲端環境可建置、測試與審查，但若沒有真正可操作的 Obsidian，不能宣稱完成實機 GUI 驗證。不要為了驗證方便另建外部 Web dashboard。
-
-本次只保存進度與推送，未修改產品實作來解決上述 runtime 問題，也未開始依新參考重新設計。
+執行期沒有 React、後端、外部 AI、API key 或不透明資料庫。只在實際需求出現時再考慮選區 PDF 工具、大量匯入及按需 AI 整合，不預建空的設定或任務系統。

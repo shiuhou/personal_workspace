@@ -1,3 +1,4 @@
+import { paperIdentity } from '../src/domain';
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { performance } from 'node:perf_hooks';
@@ -54,4 +55,15 @@ test('5,000-entry metadata projection and sorting stay bounded',()=>{
   const start=performance.now();const entries=Array.from({length:5000},(_,i)=>normalizeEntry({...file,path:`40 Notes/${i}.md`,name:`Note ${i}`,mtime:i},{type:'note',topics:['Physics']}));
   const selected=recent(entries.filter(e=>matches(e,'physics')),50);assert.equal(selected.length,50);assert.equal(selected[0].mtime,4999);
   const elapsed=performance.now()-start;assert.ok(elapsed<2000,`${elapsed.toFixed(1)}ms`);console.log(`5,000 files: metadata/filter/sort ${elapsed.toFixed(1)} ms (not a full Obsidian startup benchmark)`);
+});
+
+test('paper identities normalize supported source URLs but preserve explicit versions',()=>{
+  assert.equal(paperIdentity('https://arxiv.org/pdf/1706.03762v2.pdf?download=1'),'arxiv:1706.03762v2');
+  assert.equal(paperIdentity('https://arxiv.org/abs/hep-th/9901001v1'),'arxiv:hep-th/9901001v1');
+  assert.notEqual(paperIdentity('https://arxiv.org/abs/1706.03762v1'),paperIdentity('https://arxiv.org/abs/1706.03762v2'));
+  assert.equal(paperIdentity('https://dx.doi.org/10.1234/ABC'),'doi:10.1234/abc');
+  assert.equal(paperIdentity('https://doi.org/10.1234%2FABC'),'doi:10.1234/abc');
+  assert.equal(paperIdentity('https://arxiv.org.evil.invalid/abs/1706.03762'),'');
+  assert.equal(paperIdentity('https://example.com/paper'),'');
+  assert.equal(paperIdentity('javascript:alert(1)'),'');
 });

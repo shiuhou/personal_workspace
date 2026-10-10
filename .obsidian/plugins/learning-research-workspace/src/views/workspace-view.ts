@@ -3,6 +3,9 @@ import type { WorkspaceHost } from '../contracts';
 import { Entry, ICONS, LABELS, ObjectType, Route, Section, STATUS_LABELS, TYPES, courseGroup, displayDate, isInbox, matches, recent } from '../domain';
 import { button, empty, heading, icon, picker, run } from '../ui/components';
 
+import { TaskStore, parseTasks } from '../data/tasks';
+import { ProgressModal } from '../ui/planning';
+
 export const VIEW_TYPE='learning-research-workspace';
 const NAV: [Section,string,string,string][]=[['home','首頁','Home','house'],['courses','課程','Courses','graduation-cap'],['research','研究','Research','flask-conical'],['papers','論文','Papers','file-text'],['experiments','實驗','Experiments','test-tubes'],['ideas','想法','Ideas','lightbulb'],['inbox','收件匣','Inbox','inbox']];
 const SECTION_TYPES: Partial<Record<Section,ObjectType>>={courses:'course',research:'project',papers:'paper',experiments:'experiment',ideas:'idea'};
@@ -17,6 +20,8 @@ export class WorkspaceView extends ItemView {
   private rendered?:Component;
   private epoch=0;
   private closed=false;
+  private taskDraft='';
+  private showCompletedTasks=false;
   constructor(leaf:WorkspaceLeaf,private host:WorkspaceHost){super(leaf);}
   getViewType(){return VIEW_TYPE;}
   getDisplayText(){return 'Learning & Research';}
@@ -49,6 +54,7 @@ export class WorkspaceView extends ItemView {
     const oldScroll=this.main?.scrollTop ?? 0;
     const focused=this.contentEl.ownerDocument.activeElement as HTMLInputElement|null;
     const searching=focused?.classList.contains('lr-search-input');
+    const capturing=focused?.classList.contains('lr-task-input');
     const selection=searching?focused?.selectionStart:null;
     this.epoch++;if(this.rendered)this.removeChild(this.rendered);
     this.rendered=new Component();this.addChild(this.rendered);
@@ -62,6 +68,7 @@ export class WorkspaceView extends ItemView {
     else this.renderListing();
     this.main.querySelector('h1')?.setAttribute('tabindex','-1');
     this.main.scrollTop=oldScroll;
+    if(capturing){const input=this.body.querySelector<HTMLInputElement>('.lr-task-input');input?.focus();}
     if(searching){const input=this.body.querySelector<HTMLInputElement>('.lr-search-input');input?.focus();if(selection!=null)input?.setSelectionRange(selection,selection);}
   }
   private renderSidebar(){
@@ -109,6 +116,7 @@ export class WorkspaceView extends ItemView {
   private renderHome(){
     const welcome=heading(this.main,'學習與研究，從這裡繼續。','YOUR WORKSPACE','課程、研究與想法，都有自己的位置。');
     const stamp=welcome.createDiv({cls:'lr-home-stamp'});icon(stamp,'sprout');stamp.createSpan({text:'Learning & Research'});
+    this.renderTasks();
     const courses=this.section(this.main,'課程 Courses','為每一門課保留清楚的入口。',{section:'courses'});
     const current=this.host.index.ofType('course').filter(e=>!['archived','completed'].includes(e.status));
     if(current.length){const grid=courses.createDiv({cls:'lr-card-grid'});for(const entry of recent(current,6))this.card(grid,entry);}
@@ -127,10 +135,55 @@ export class WorkspaceView extends ItemView {
     const pinned=this.section(this.main,'重要資料 Pinned','你親自選擇保留在手邊的內容。');
     this.rows(pinned,recent(this.host.index.all().filter(e=>e.pinned),6),'重要資料，留在手邊','在內容列或詳情頁選擇置頂，即可出現在這裡。');
   }
+  private renderProgress(parent:HTMLElement,entry:Entry){
+    const box=parent.createDiv({cls:'lr-project-progress'});
+    const label=box.createDiv({cls:'lr-progress-label'});
+    label.createSpan({text:entry.progress==null?'進度尚未設定':`專案進度 ${entry.progress}%`});
+    button(label,entry.progress==null?'設定進度':'更新進度',()=>new ProgressModal(this.host,entry).open(),{cls:'lr-quiet',title:`更新 ${entry.name} 的進度`});
+    if(entry.progress!=null)box.createEl('progress',{attr:{value:String(entry.progress),max:'100','aria-label':`${entry.name} 的專案進度`, 'aria-valuetext':`${entry.progress}%`}});
+    else box.createDiv({cls:'lr-progress-unset',attr:{'aria-hidden':'true'}});
+  }
+  private renderTasks(){
+    const block=this.section(this.main,'今日與接下來 Tasks','手寫新增，或讓 AI 更新原始清單；完成後勾選。');
+    const store=new TaskStore(this.app,`${this.host.settings.folders.note}/Tasks.md`);
+    const form=block.createDiv({cls:'lr-task-capture'});
+    const input=form.createEl('input',{cls:'lr-task-input',attr:{type:'text',placeholder:'新增待辦，例如：閱讀論文第二節','aria-label':'新增待辦內容'}});
+    input.value=this.taskDraft;input.addEventListener('input',()=>{this.taskDraft=input.value;});
+    const error=block.createDiv({cls:'lr-form-error',attr:{role:'alert'}});
+    const add=button(form,'新增待辦',async()=>{
+      if(add.disabled)return;add.disabled=true;error.empty();
+      try{await store.add(input.value);this.taskDraft='';input.value='';await draw();}
+      catch(e){error.setText(e instanceof Error?e.message:String(e));}
+      finally{add.disabled=false;}
+    },{icon:'plus',cls:'lr-primary'});
+    input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();add.click();}});
+    const tools=block.createDiv({cls:'lr-task-tools'});
+    button(tools,'開啟原始清單',async()=>{if(!this.app.vault.getFileByPath(store.path)){error.setText('新增第一項待辦後會建立清單檔案。');return;}await this.host.openFile(store.path);},{icon:'file-pen-line',cls:'lr-quiet'});
+    const show=tools.createEl('label',{cls:'lr-task-show'});const done=show.createEl('input',{attr:{type:'checkbox'}});show.createSpan({text:'顯示已完成'});done.checked=this.showCompletedTasks;
+    const list=block.createDiv({cls:'lr-task-list'});let limit=8;let generation=0;
+    const epoch=this.epoch;
+    const draw=async()=>{
+      const current=++generation;
+      try{
+        const content=await store.read();if(current!==generation||epoch!==this.epoch||this.closed)return;
+        list.empty();const tasks=parseTasks(content).filter(t=>done.checked||!t.done);
+        if(!tasks.length){empty(list,'list-checks',done.checked?'還沒有待辦':'目前沒有未完成待辦','每一項都保留為普通 Markdown 核取方塊，不會自動清空。');return;}
+        for(const task of tasks.slice(0,limit)){
+          const row=list.createDiv({cls:`lr-task-row ${task.done?'is-done':''}`});
+          const check=row.createEl('input',{attr:{type:'checkbox','aria-label':`${task.done?'重新開啟':'完成'}：${task.text}`}});check.checked=task.done;
+          const text=row.createDiv({cls:'lr-task-text'});
+          void MarkdownRenderer.render(this.app,task.text,text,store.path,this.rendered!);
+          check.addEventListener('change',()=>run(async()=>{check.disabled=true;try{await store.toggle(task);await draw();}catch(e){check.checked=task.done;error.setText(e instanceof Error?e.message:String(e));}finally{check.disabled=false;}}));
+        }
+        if(tasks.length>limit)button(list,`顯示更多（還有 ${tasks.length-limit} 項）`,()=>{limit+=20;return draw();},{cls:'lr-quiet'});
+      }catch(e){error.setText(e instanceof Error?e.message:String(e));}
+    };
+    done.addEventListener('change',()=>{this.showCompletedTasks=done.checked;limit=8;void draw();});void draw();
+  }
   private card(parent:HTMLElement,entry:Entry){
     const el=parent.createEl('article',{cls:`lr-card lr-type-${entry.type}`});
     const top=el.createDiv({cls:'lr-card-top'});icon(top,ICONS[entry.type ?? 'note'],'lr-card-icon');this.badge(top,entry.status);
-    button(el,entry.name,()=>this.open(entry),{cls:'lr-card-title'});
+    button(el,entry.name,()=>this.openEntry(entry),{cls:'lr-card-title'});
     const related=this.host.index.related(entry.path,entry.type==='course'?'course':'project');
     el.createEl('p',{text:related.length?`${related.length} 份相關資料`:'等待第一份資料',cls:'lr-card-summary'});
     const foot=el.createDiv({cls:'lr-card-foot'});foot.createSpan({text:displayDate(entry.mtime)});
@@ -138,17 +191,18 @@ export class WorkspaceView extends ItemView {
   }
   private projectCard(parent:HTMLElement,entry:Entry){
     const el=parent.createEl('article',{cls:'lr-project-card lr-type-project'});icon(el,'flask-conical','lr-card-icon');
-    const info=el.createDiv({cls:'lr-project-info'});button(info,entry.name,()=>this.open(entry),{cls:'lr-card-title'});
+    const info=el.createDiv({cls:'lr-project-info'});button(info,entry.name,()=>this.openEntry(entry),{cls:'lr-card-title'});
     const related=this.host.index.related(entry.path,'project');
     info.createEl('p',{text:[['paper','papers'],['note','notes'],['experiment','experiments'],['idea','ideas']].map(([type,label])=>`${related.filter(e=>e.type===type).length} ${label}`).join(' · ')});
+    this.renderProgress(info,entry);
     this.badge(el,entry.status);button(el,'',()=>this.host.openFile(entry.path),{icon:'file-pen-line',cls:'lr-icon-button',title:`開啟原始筆記：${entry.name}`});
   }
   private badge(parent:HTMLElement,status:string){if(status)parent.createSpan({cls:`lr-badge ${status==='failed'?'is-failed':''}`,text:STATUS_LABELS[status] ?? status});}
-  private open(entry:Entry){if(['course','project','paper'].includes(entry.type ?? ''))this.navigate({section:'detail',path:entry.path});else run(()=>this.host.openFile(entry.path));}
+  private openEntry(entry:Entry){if(['course','project','paper'].includes(entry.type ?? ''))this.navigate({section:'detail',path:entry.path});else run(()=>this.host.openFile(entry.path));}
   private row(parent:HTMLElement,entry:Entry){
     const row=parent.createEl('article',{cls:`lr-row lr-type-${entry.type ?? 'file'}`});
     icon(row,entry.type?ICONS[entry.type]:entry.ext==='pdf'?'file-text':['png','jpg','jpeg','webp','svg'].includes(entry.ext)?'image':'file','lr-row-icon');
-    const info=row.createDiv({cls:'lr-row-info'});button(info,entry.name,()=>this.open(entry),{cls:'lr-row-title'});
+    const info=row.createDiv({cls:'lr-row-info'});button(info,entry.name,()=>this.openEntry(entry),{cls:'lr-row-title'});
     info.createDiv({cls:'lr-row-meta',text:`${entry.type?LABELS[entry.type]:entry.ext.toUpperCase()} · ${displayDate(entry.mtime)}`});
     this.badge(row,entry.status);
     const actions=row.createDiv({cls:'lr-row-actions'});
@@ -165,16 +219,18 @@ export class WorkspaceView extends ItemView {
     const titles:Partial<Record<Section,[string,string,string]>>={courses:['課程','COURSES','從講義到複習，保留完整的學習脈絡。'],research:['研究專案','RESEARCH','串起論文、實驗與下一個問題。'],papers:['論文','PAPERS','閱讀、理解，再連回你的研究。'],experiments:['實驗','EXPERIMENTS','保留方法、結果與證據，包括失敗的嘗試。'],ideas:['想法','IDEAS','先記下來，讓連結慢慢形成。'],inbox:['收件匣','INBOX','不必現在決定所有分類。'],recent:['最近修改','RECENT','回到你最近編輯或匯入的檔案。'],library:['全部資料','LIBRARY','筆記、資源與附件，都可以在這裡找到。']};
     const t=titles[section]!;const h=heading(this.main,t[0],t[1],t[2]);
     if(type)button(h,type==='idea'?'捕捉想法':`新增${t[0]}`,()=>type==='idea'?this.host.capture(true):this.host.newObject(type),{icon:'plus',cls:'lr-primary'});
+    if(section==='research')this.renderResearchMap();
+    if(section==='library'&&this.route.filter==='note')button(h,'新增概念筆記',()=>this.host.newObject('note',{kind:'concept'}),{icon:'notebook-pen',cls:'lr-primary'});
     if(section==='inbox')this.renderDropzone(this.main);
     const toolbar=this.main.createDiv({cls:'lr-list-toolbar'});
     const searchWrap=toolbar.createDiv({cls:'lr-search'});icon(searchWrap,'search');
     const input=searchWrap.createEl('input',{cls:'lr-search-input',attr:{type:'search',placeholder:'篩選標題、主題、作者…','aria-label':'篩選目前列表'}});input.value=this.route.query ?? '';
     const scope=toolbar.createEl('select',{attr:{'aria-label':'選擇檢視'}});
     let options:[string,string][]=[['all','全部 All']];
-    if(section==='papers')options=[...options,['inbox','待整理 Inbox'],['reading','閱讀中 Reading'],['recent','最近加入'],['by-project','依研究專案'],['by-topic','依主題'],['reference','參考 Reference'],['archived','封存']];
+    if(section==='papers')options=[...options,['inbox','待整理 Inbox'],['skimming','略讀 Skimming'],['reading','閱讀中 Reading'],['synthesized','已整合 Synthesized'],['read','已讀 Read'],['recent','最近加入'],['by-project','依研究專案'],['by-topic','依主題'],['reference','參考 Reference'],['archived','封存']];
     else if(type)options=[...options,...(type==='course'?['active','planned','completed','archived']:type==='project'?['active','paused','completed','archived']:type==='experiment'?['planned','running','completed','failed','paused']:['inbox','archived']).map(s=>[s,STATUS_LABELS[s] ?? s] as [string,string])];
     else if(section==='inbox')options=[...options,['md','筆記'],['pdf','PDF'],['images','圖片']];
-    else if(section==='library')options=[...options,['note','筆記 Notes'],['resource','資源 Resources'],['attachments','附件']];
+    else if(section==='library')options=[...options,['note','知識與筆記 Notes'],['concept','可重用概念 Concepts'],['resource','資源 Resources'],['attachments','附件']];
     for(const [value,label] of options)scope.createEl('option',{value,text:label});
     scope.value=options.some(o=>o[0]===this.route.filter)?this.route.filter!:'all';
     const count=this.main.createDiv({cls:'lr-results-count',attr:{'aria-live':'polite'}});
@@ -185,7 +241,7 @@ export class WorkspaceView extends ItemView {
       if(section==='inbox')entries=entries.filter(e=>isInbox(e,this.host.settings));
       if(type && !['all','recent','by-project','by-topic'].includes(filter))entries=entries.filter(e=>e.status===filter);
       if(section==='inbox'&&filter!=='all')entries=entries.filter(e=>filter==='images'?['png','jpg','jpeg','webp','gif','svg'].includes(e.ext):e.ext===filter);
-      if(section==='library'&&filter!=='all')entries=entries.filter(e=>filter==='attachments'?e.ext!=='md':e.type===filter);
+      if(section==='library'&&filter!=='all')entries=entries.filter(e=>filter==='attachments'?e.ext!=='md':filter==='concept'?e.type==='note'&&e.kind==='concept':e.type===filter);
       entries=entries.filter(e=>matches(e,input.value));
       entries=filter==='recent'?[...entries].sort((a,b)=>b.ctime-a.ctime):recent(entries);
       count.setText(`${entries.length} 個檔案${entries.length>limit?` · 顯示前 ${limit} 個`:''}`);
@@ -201,6 +257,20 @@ export class WorkspaceView extends ItemView {
     };
     input.addEventListener('input',()=>{this.route.query=input.value;limit=50;draw();});
     scope.addEventListener('change',()=>{this.route.filter=scope.value;limit=50;draw();this.app.workspace.requestSaveLayout();});draw();
+  }
+  private renderResearchMap(){
+    const grid=this.main.createDiv({cls:'lr-research-map',attr:{'aria-label':'研究資料入口'}});
+    const areas:[string,string,string,string,Route,ObjectType][]=[
+      ['知識與理解','Knowledge','保留完整思路；需要重用時再拆成概念。','notebook-pen',{section:'library',filter:'note'},'note'],
+      ['論文與來源','Sources','每篇一份主筆記，理解與原文互相連結。','file-text',{section:'papers'},'paper'],
+      ['實踐與證據','Practice','保存設定、結果與失敗，連回研究問題。','test-tubes',{section:'experiments'},'experiment']
+    ];
+    for(const [title,en,description,glyph,route,type] of areas){
+      const card=grid.createEl('article',{cls:`lr-research-area lr-type-${type}`});
+      icon(card,glyph,'lr-card-icon');card.createEl('small',{text:en});
+      button(card,title,()=>this.navigate(route),{cls:'lr-card-title'});
+      card.createEl('p',{text:description});card.createSpan({cls:'lr-muted',text:`${this.host.index.ofType(type).length} 份檔案`});
+    }
   }
   private renderDropzone(parent:HTMLElement){
     const zone=parent.createDiv({cls:'lr-dropzone'});icon(zone,'inbox','lr-drop-icon');
@@ -222,7 +292,7 @@ export class WorkspaceView extends ItemView {
     const links=this.main.createDiv({cls:'lr-detail-links'});
     for(const value of [...entry.projects,...(entry.course?[entry.course]:[])]){
       const file=this.host.index.resolve(value,entry.path);
-      button(links,file?.basename ?? value,()=>{if(file){const target=this.host.index.entries.get(file.path);if(target)this.open(target);else run(()=>this.host.openFile(file.path));}},{icon:file?'link':'unlink',cls:'lr-chip',title:file?file.path:`連結尚未找到：${value}`});
+      button(links,file?.basename ?? value,()=>{if(file){const target=this.host.index.entries.get(file.path);if(target)this.openEntry(target);else run(()=>this.host.openFile(file.path));}},{icon:file?'link':'unlink',cls:'lr-chip',title:file?file.path:`連結尚未找到：${value}`});
     }
     for(const topic of entry.topics)links.createSpan({cls:'lr-topic',text:topic});
     if(entry.type==='paper')this.renderPaper(entry);
@@ -238,10 +308,11 @@ export class WorkspaceView extends ItemView {
       this.rows(block,recent(related.filter(e=>courseGroup(e)===kind)));}
   }
   private renderProject(entry:Entry){
+    this.renderProgress(this.main,entry);
     const overview=this.section(this.main,'研究備忘 Research brief','研究問題、當前重點與重要決策。');this.renderMarkdown(overview,entry);
     const related=this.host.index.related(entry.path,'project');
     for(const type of ['paper','experiment','note','idea','resource'] as ObjectType[]){
-      const block=this.section(this.main,LABELS[type],'');button(block,'新增',()=>this.host.newObject(type,{projects:[`[[${entry.path.replace(/\.md$/,'')}]]`]}),{icon:'plus',cls:'lr-section-add'});
+      const block=this.section(this.main,type==='note'?'知識與筆記 Notes':LABELS[type],'');button(block,'新增',()=>this.host.newObject(type,{projects:[`[[${entry.path.replace(/\.md$/,'')}]]`]}),{icon:'plus',cls:'lr-section-add'});
       this.rows(block,recent(related.filter(e=>e.type===type)));}
     this.rows(this.section(this.main,'最近修改 Recent',''),recent(related,5));
   }
@@ -252,9 +323,14 @@ export class WorkspaceView extends ItemView {
     if(pdf){button(tools,'開啟 PDF',()=>this.host.openFile(pdf.path),{icon:'file-text',cls:'lr-primary'});button(tools,'PDF ＋ 閱讀筆記',async()=>{const note=this.app.vault.getFileByPath(entry.path);if(note)await this.host.openPaperPair(note,pdf);},{icon:'columns-2'});}
     else tools.createEl('p',{cls:'lr-muted',text:entry.pdf?'PDF 連結尚未找到，請在原始筆記修正 pdf 屬性。':'尚未連結 PDF。可在原始筆記的 pdf 屬性加入檔案連結。'});
     if(/^https?:\/\//i.test(entry.source))tools.createEl('a',{text:'開啟來源 ↗',href:entry.source,attr:{target:'_blank',rel:'noopener noreferrer'}});
-    this.renderMarkdown(this.section(this.main,'閱讀筆記 Reading notes',''),entry);
-    const related=this.host.index.related(entry.path,'references');
-    this.rows(this.section(this.main,'相關筆記與實驗 Related','明確連結到這篇論文的內容。'),recent(related));
+    const connect=this.section(this.main,'連結理解與實踐 Connect','從閱讀中留下概念或實驗線索；來源連結會自動保留。');
+    const context={projects:entry.projects,course:entry.course,body:`\n## 來源 Source\n\n[[${entry.path.replace(/\.md$/,'')}]]\n`};
+    const actions=connect.createDiv({cls:'lr-paper-tools'});
+    button(actions,'建立概念筆記',()=>this.host.newObject('note',{...context,kind:'concept'}),{icon:'notebook-pen'});
+    button(actions,'記下實驗線索',()=>this.host.newObject('experiment',context),{icon:'test-tubes'});
+    this.renderMarkdown(this.section(this.main,'閱讀筆記 Reading notes','逐頁引用留在主筆記；原文與自己的解讀分開寫。'),entry);
+    const related=this.host.index.connected(entry.path);
+    this.rows(this.section(this.main,'相關筆記與實驗 Related','與這篇論文互相連結的筆記與實驗。'),recent(related));
   }
   private renderMarkdown(parent:HTMLElement,entry:Entry){
     const el=parent.createDiv({cls:'lr-note-preview markdown-rendered'});const epoch=this.epoch;const component=this.rendered!;

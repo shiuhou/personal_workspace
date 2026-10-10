@@ -1,3 +1,4 @@
+import { progressValue } from './data/tasks';
 export const TYPES = ['course', 'project', 'paper', 'note', 'experiment', 'idea', 'resource'] as const;
 export type ObjectType = typeof TYPES[number];
 export type Section = 'home' | 'courses' | 'research' | 'papers' | 'experiments' | 'ideas' | 'inbox' | 'recent' | 'library' | 'detail';
@@ -15,15 +16,15 @@ export const ICONS: Record<ObjectType, string> = {course:'graduation-cap',projec
 export const TEMPLATES: Record<ObjectType, string> = {course:'Course',project:'Research Project',paper:'Paper',note:'General Note',experiment:'Experiment',idea:'Idea',resource:'Resource'};
 export const STATUSES: Record<ObjectType, string[]> = {
   course:['planned','active','completed','archived'], project:['active','paused','completed','archived'],
-  paper:['inbox','reading','read','reference','archived'], experiment:['planned','running','completed','failed','paused'],
+  paper:['inbox','skimming','reading','synthesized','read','reference','archived'], experiment:['planned','running','completed','failed','paused'],
   idea:['inbox','archived'], note:['inbox','archived'], resource:['inbox','reference','archived']
 };
-export const STATUS_LABELS: Record<string,string> = {planned:'計畫中',active:'進行中',completed:'已完成',archived:'已封存',paused:'暫停',inbox:'待整理',reading:'閱讀中',read:'已讀',reference:'參考',running:'執行中',failed:'失敗'};
+export const STATUS_LABELS: Record<string,string> = {planned:'計畫中',active:'進行中',completed:'已完成',archived:'已封存',paused:'暫停',inbox:'待整理',skimming:'略讀',synthesized:'已整合',reading:'閱讀中',read:'已讀',reference:'參考',running:'執行中',failed:'失敗'};
 export interface Entry {
   path: string; name: string; ext: string; mtime: number; ctime: number;
   type?: ObjectType; status: string; projects: string[]; course: string;
   topics: string[]; authors: string[]; year: string; pdf: string; source: string;
-  kind: string; created: string; pinned: boolean; links: string[]; issues: string[];
+  progress?: number; kind: string; created: string; pinned: boolean; links: string[]; issues: string[];
 }
 export function text(value: unknown): string {
   return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
@@ -34,6 +35,7 @@ export function strings(value: unknown): string[] {
 export function isObjectType(value: unknown): value is ObjectType { return TYPES.includes(value as ObjectType); }
 export function inFolder(path: string, folder: string): boolean { return path.startsWith(folder.replace(/\/$/, '') + '/'); }
 export function isContentPath(path: string, settings: WorkspaceSettings): boolean {
+  if(['README.md','AGENTS.md'].includes(path)) return false;
   if(path.split('/').some(s => s.startsWith('.')) || inFolder(path,settings.folders.templates)) return false;
   if(Object.entries(settings.folders).some(([key,folder])=>key!=='templates'&&inFolder(path,folder))) return true;
   return !inFolder(path,'00 Home') && !inFolder(path,'99 System');
@@ -46,7 +48,8 @@ export function normalizeEntry(file: Pick<Entry,'path'|'name'|'ext'|'mtime'|'cti
   if (fm.type && !isObjectType(fm.type)) issues.push('未知的 type，請在原始筆記中修正。');
   if (fm.project && !fm.projects) issues.push('偵測到舊欄位 project；編輯關聯時會改用 projects。');
   for (const key of ['projects','topics','authors']) if (fm[key] != null && !Array.isArray(fm[key])) issues.push(`${key} 建議使用清單；目前以單一值讀取。`);
-  return {...file, type:isObjectType(fm.type)?fm.type:undefined, status:text(fm.status),
+  if(fm.progress!=null&&progressValue(fm.progress)==null)issues.push('progress 請使用 0 至 100 的數字；目前顯示尚未設定。');
+  return {...file, progress:progressValue(fm.progress), type:isObjectType(fm.type)?fm.type:undefined, status:text(fm.status),
     projects:strings(fm.projects ?? fm.project), course:text(fm.course), topics:strings(fm.topics),
     authors:strings(fm.authors),year:text(fm.year),pdf:text(fm.pdf),source:text(fm.source),
     kind:text(fm.kind),created:text(fm.created),pinned:fm.pinned===true,links,issues};
@@ -75,4 +78,21 @@ export function courseGroup(entry: Entry): string {
 }
 export function displayDate(value: number): string {
   return new Intl.DateTimeFormat('zh-TW',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value));
+}
+
+/** Only explicit source identifiers are canonicalized; versions remain distinct. */
+export function paperIdentity(source:string):string {
+  let url:URL;
+  try {url=new URL(source.trim());} catch {return '';}
+  if(!['https:','http:'].includes(url.protocol))return '';
+  const host=url.hostname.toLowerCase();
+  if(host==='arxiv.org'||host==='www.arxiv.org') {
+    const id=url.pathname.replace(/^\/(abs|pdf)\//,'').replace(/\.pdf$/i,'');
+    if(/^(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(v\d+)?$/i.test(id))return `arxiv:${id.toLowerCase()}`;
+  }
+  if(host==='doi.org'||host==='dx.doi.org') {
+    let id:string;try {id=decodeURIComponent(url.pathname.slice(1));}catch{return '';}
+    if(/^10\.\d{4,9}\/\S+$/i.test(id))return `doi:${id.toLowerCase()}`;
+  }
+  return '';
 }

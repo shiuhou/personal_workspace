@@ -1,8 +1,8 @@
 import { Notice, setIcon } from 'obsidian';
 export function icon(parent:HTMLElement,name:string,cls='lr-icon') { const el=parent.createSpan({cls,attr:{'aria-hidden':'true'}});setIcon(el,name);return el; }
 export function run(action:()=>unknown) {
-  try { Promise.resolve(action()).catch(error=>new Notice(error instanceof Error?error.message:String(error),9000)); }
-  catch(error) {new Notice(String(error),9000);}
+  try { Promise.resolve(action()).catch(error=>{console.error("Learning & Research Workspace",error);new Notice(error instanceof Error?error.message:String(error),9000);}); }
+  catch(error) {console.error("Learning & Research Workspace",error);new Notice(String(error),9000);}
 }
 export function button(parent:HTMLElement,label:string,action:()=>unknown,options:{icon?:string;cls?:string;title?:string}={}) {
   const b=parent.createEl('button',{cls:`lr-button ${options.cls ?? ''}`,attr:{type:'button','aria-label':options.title ?? label,title:options.title ?? label}});

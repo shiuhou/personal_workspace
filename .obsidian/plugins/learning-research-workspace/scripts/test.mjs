@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 const dir = await mkdtemp(join(tmpdir(), 'lr-workspace-tests-'));
 try {
   const outfiles=[];
-  for(const name of ['domain','actions']) {
+  for(const name of ['domain','actions','view','index','tasks']) {
     const outfile=join(dir,`${name}.test.cjs`);outfiles.push(outfile);
     await build({entryPoints:[`tests/${name}.test.ts`],outfile,bundle:true,platform:'node',format:'cjs',alias:{obsidian:join(process.cwd(),'tests/obsidian-stub.ts')}});
   }
