@@ -1,0 +1,10 @@
+.DS_Store
+**/node_modules/
+.obsidian/workspace*.json
+.obsidian/cache/
+.trash/
+99 System/Demo/
+*.log
+.env
+.env.*
+!.env.example

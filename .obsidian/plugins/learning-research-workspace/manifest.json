@@ -1,0 +1,9 @@
+{
+  "id": "learning-research-workspace",
+  "name": "Learning & Research Workspace",
+  "version": "1.0.0",
+  "minAppVersion": "1.14.4",
+  "description": "A local learning and research workspace over ordinary Markdown and attachments.",
+  "author": "Personal workspace",
+  "isDesktopOnly": false
+}

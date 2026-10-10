@@ -1,0 +1,15 @@
+{
+  "openOnStartup": true,
+  "folders": {
+    "course": "10 Courses",
+    "project": "20 Research",
+    "paper": "30 Papers",
+    "note": "40 Notes",
+    "experiment": "50 Experiments",
+    "idea": "60 Ideas",
+    "resource": "70 Resources",
+    "inbox": "01 Inbox",
+    "attachments": "80 Attachments",
+    "templates": "90 Templates"
+  }
+}

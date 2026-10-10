@@ -1,0 +1,40 @@
+filters:
+  and:
+    - '!file.inFolder("00 Home")'
+    - '!file.inFolder("90 Templates")'
+    - '!file.inFolder("99 System")'
+properties:
+  file.name:
+    displayName: 檔案 File
+  note.type:
+    displayName: 類型 Type
+  note.status:
+    displayName: 狀態 Status
+  file.mtime:
+    displayName: 修改時間 Modified
+views:
+  - type: table
+    name: All files
+    order: [file.name, note.type, note.status, file.mtime]
+    sort:
+      - property: file.mtime
+        direction: DESC
+  - type: cards
+    name: Courses
+    filters: 'type == "course"'
+    order: [file.name, note.status]
+  - type: table
+    name: Research
+    filters: 'type == "project"'
+    order: [file.name, note.status]
+  - type: table
+    name: Papers
+    filters: 'type == "paper"'
+    order: [file.name, note.status, note.projects, note.pdf]
+  - type: table
+    name: Inbox
+    filters:
+      or:
+        - 'file.inFolder("01 Inbox")'
+        - 'status == "inbox"'
+    order: [file.name, file.ext, note.type, file.mtime]
