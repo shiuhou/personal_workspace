@@ -2,6 +2,7 @@ import { App, FuzzySuggestModal, Modal, Notice, Setting, TFile } from 'obsidian'
 import { Entry, LABELS, ObjectType, STATUSES, STATUS_LABELS, TYPES, safeStem } from '../domain';
 import type { WorkspaceHost } from '../contracts';
 import type { CreateInput } from '../data/actions';
+import { newId } from '../data/portable';
 import { button, picker, run } from './components';
 
 class FilePicker extends FuzzySuggestModal<TFile> {
@@ -10,7 +11,7 @@ class FilePicker extends FuzzySuggestModal<TFile> {
   getItemText(file:TFile) {return file.basename+'  ·  '+file.parent?.path;}
   onChooseItem(file:TFile) {this.choose(file);}
 }
-function relation(parent:HTMLElement,host:WorkspaceHost,label:string,type:'project'|'course',values:string[],multiple:boolean,change:(values:string[])=>void) {
+export function relation(parent:HTMLElement,host:WorkspaceHost,label:string,type:'project'|'course',values:string[],multiple:boolean,change:(values:string[])=>void) {
   const setting=new Setting(parent).setName(label).setDesc(multiple?'選填，可連結多個研究專案。':'選填，連結所屬課程。');
   const chips=setting.controlEl.createDiv({cls:'lr-link-chips'});
   const draw=()=>{chips.empty(); for(const value of values) button(chips,value.replace(/^\[\[|\]\]$/g,''),()=>{values=values.filter(v=>v!==value);change(values);draw();},{icon:'x',cls:'lr-chip',title:`移除 ${value}`});};draw();
@@ -73,6 +74,7 @@ export class NewObjectModal extends Modal {
   onClose() {this.contentEl.empty();}
 }
 export class CaptureModal extends Modal {
+  private operationId=newId();
   constructor(private host:WorkspaceHost,private idea=false) {super(host.app);this.setTitle(idea?'捕捉想法 Capture idea':'快速收集 Quick capture');}
   onOpen() {
     this.contentEl.addClass('lr-modal');this.contentEl.createEl('p',{cls:'lr-modal-intro',text:'寫下想法、貼上連結或 AI 回覆，先放進 Inbox。'});
@@ -81,7 +83,7 @@ export class CaptureModal extends Modal {
     const footer=this.contentEl.createDiv({cls:'lr-modal-actions'});button(footer,'取消',()=>this.close());
     const submit=button(footer,'存入 Inbox',async()=>{
       if(submit.disabled)return;submit.disabled=true;
-      try {await this.host.actions.capture(area.value,this.idea);this.close();new Notice('已存入 Inbox。');}
+      try {await this.host.actions.capture(area.value,this.idea,this.operationId);this.close();new Notice('已存入 Inbox。');}
       catch(e){error.setText(String(e));submit.disabled=false;}
     },{icon:'inbox',cls:'lr-primary'});
     area.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();submit.click();}});area.focus();
@@ -114,7 +116,7 @@ export class MetadataModal extends Modal {
     relation(this.contentEl,this.host,'研究專案 Projects','project',this.projects,true,v=>this.projects=v);
     relation(this.contentEl,this.host,'課程 Course','course',this.course?[this.course]:[],false,v=>this.course=v[0] ?? '');
     const more=this.contentEl.createEl('details',{cls:'lr-more'});more.createEl('summary',{text:'分類 · Optional'});
-    new Setting(more).setName('筆記用途 Kind').addDropdown(d=>d.addOptions({'':'一般','concept':'可重用概念 Concept','lecture':'講義 Lecture','assignment':'作業 Assignment','review':'複習 Review'}).setValue(this.kind).onChange(v=>this.kind=v));
+    new Setting(more).setName('筆記用途 Kind').addDropdown(d=>d.addOptions({'':'一般','concept':'可重用概念 Concept','lecture':'講義 Lecture','assignment':'作業 Assignment','review':'複習 Review'}).addOption(this.kind,this.kind||'一般').setValue(this.kind).onChange(v=>this.kind=v));
     new Setting(more).setName('主題 Topics').setDesc('以逗號分隔，無需預先建立分類。').addText(t=>t.setValue(this.topics).onChange(v=>this.topics=v));
     const error=this.contentEl.createDiv({cls:'lr-form-error',attr:{role:'alert'}});
     const footer=this.contentEl.createDiv({cls:'lr-modal-actions'});button(footer,'取消',()=>this.close());

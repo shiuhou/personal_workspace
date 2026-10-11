@@ -18,3 +18,9 @@ test('progress distinguishes missing or invalid data from real zero',()=>{
   for(const invalid of [undefined,null,'50',NaN,Infinity,-1,101])assert.equal(progressValue(invalid),undefined);
   for(const value of [0,37.5,100])assert.equal(progressValue(value),value);
 });
+
+test('renamed task source is discovered without making a second list',async()=>{
+  const {TaskStore}=await import('../src/data/tasks');const {DEFAULT_SETTINGS}=await import('../src/domain');
+  const file={path:'40 Notes/Renamed.md'};const app={vault:{getFileByPath:(path:string)=>path===file.path?file:null,getMarkdownFiles:()=>[file],read:async()=>'- [ ] Keep ^task-a'},metadataCache:{getFileCache:()=>({frontmatter:{kind:'tasks'}})}};
+  const store=new TaskStore(app as any,'40 Notes/Tasks.md');assert.equal(store.path,file.path);assert.equal(parseTasks(await store.read())[0].id,'task-a');
+});

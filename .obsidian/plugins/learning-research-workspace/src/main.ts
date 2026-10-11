@@ -5,6 +5,8 @@ import { CreateInput, FileActions } from './data/actions';
 import { WorkspaceView, VIEW_TYPE } from './views/workspace-view';
 import { CaptureModal, MetadataModal, NewObjectModal } from './ui/modals';
 import { WorkspaceSettingsTab } from './settings';
+import { validZone } from './data/dates';
+import { RecordModal } from './ui/records';
 import { run } from './ui/components';
 
 export default class WorkspacePlugin extends Plugin {
@@ -14,7 +16,7 @@ export default class WorkspacePlugin extends Plugin {
   private disposed=false;
   async onload(){
     const saved=await this.loadData();
-    this.settings={openOnStartup:saved?.openOnStartup!==false,folders:{...DEFAULT_SETTINGS.folders}};
+    this.settings={openOnStartup:saved?.openOnStartup!==false,folders:{...DEFAULT_SETTINGS.folders},timezone:validZone(saved?.timezone)?saved.timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,homeMode:saved?.homeMode==='today'?'today':'week'};
     for(const key of Object.keys(this.settings.folders) as (keyof WorkspaceSettings['folders'])[]){
       const value=saved?.folders?.[key];if(typeof value==='string'&&validateFolder(value))this.settings.folders[key]=value;
     }
@@ -27,6 +29,9 @@ export default class WorkspacePlugin extends Plugin {
     this.addCommand({id:'quick-capture',name:'Quick capture',callback:()=>this.capture()});
     this.addCommand({id:'capture-idea',name:'Capture idea',callback:()=>this.capture(true)});
     for(const type of TYPES.filter(t=>t!=='idea'))this.addCommand({id:`new-${type}`,name:type==='paper'?'Add paper':`New ${type==='project'?'research project':type}`,callback:()=>this.newObject(type)});
+    this.addCommand({id:'open-tasks',name:'開啟待辦 Tasks',callback:()=>run(()=>this.openWorkspace({section:'tasks'}))});
+    this.addCommand({id:'open-records',name:'開啟工作記錄 Records',callback:()=>run(()=>this.openWorkspace({section:'records'}))});
+    this.addCommand({id:'new-record',name:'新增工作記錄',callback:()=>new RecordModal(this).open()});
     this.addCommand({id:'rebuild-index',name:'Rebuild workspace index',callback:()=>run(()=>this.index.rebuild())});
     this.addSettingTab(new WorkspaceSettingsTab(this.app,this));
     this.registerObsidianProtocolHandler(VIEW_TYPE,params=>{if(!params.vault || params.vault===this.app.vault.getName())run(()=>this.openWorkspace());});

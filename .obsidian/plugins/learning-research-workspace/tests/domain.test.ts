@@ -67,3 +67,7 @@ test('paper identities normalize supported source URLs but preserve explicit ver
   assert.equal(paperIdentity('https://example.com/paper'),'');
   assert.equal(paperIdentity('javascript:alert(1)'),'');
 });
+
+test('archiving an inbox note preserves its file but excludes it from unprocessed items',()=>{
+  const entry=normalizeEntry({path:'01 Inbox/Old.md',name:'Old',ext:'md',mtime:1,ctime:1},{status:'archived'});assert.equal(isInbox(entry,DEFAULT_SETTINGS),false);
+});

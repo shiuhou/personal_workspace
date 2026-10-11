@@ -106,3 +106,7 @@ test('same PDF with conflicting explicit source version is not silently reused',
   await assert.rejects(h.actions.create({type:'paper',title:'Version 2',source:'https://arxiv.org/abs/1706.03762v2',pdf:'[[80 Attachments/A.pdf]]'}),/不同來源或版本/);
   assert.equal(h.contents.get(original.path),'Keep annotations');
 });
+
+test('retrying the same quick capture operation returns the saved note once',async()=>{
+  const h=harness();const a=await h.actions.capture('Keep original [[Paper]]',false,'stable');const b=await h.actions.capture('Keep original [[Paper]]',false,'stable');assert.equal(a,b);assert.match(h.contents.get(a.path) as string,/capture_id: stable/);
+});

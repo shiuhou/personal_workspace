@@ -28,3 +28,7 @@ Automated tests mock Obsidian APIs; passing them does not establish that the plu
 ## AI-assisted daily use
 
 The user wants AI to actively help write notes, organize material, and update project/repository content from their descriptions—not just hand them text to copy. For an authorized capture or update request, find the relevant existing files, perform the appropriate local edits, preserve personal text and unknown metadata, and report the changes briefly. Use Inbox when categorization is uncertain. Distinguish source facts, user statements, and AI suggestions. Do not infer completed work or percentages without evidence. Read `99 System/Documentation/AI_WORKFLOW.md` for these conventions. The user explicitly deferred scheduling; do not create recurring automations unless asked again.
+
+## 2026-10-11 scope update
+
+The latest user request explicitly authorizes a portable basic calendar, task details/priority/date, work logs, on-demand journals, quick capture, and continuation flows inside this plugin. This supersedes the earlier exclusion of calendars/task management. Keep recurrence/import and optional manual sessions honest if incomplete. No scheduling automation, external integration, publication, or push is authorized by this development request. See the current README and AI_WORKFLOW formats. All QA data must remain in 99 System/Demo and be removed, and test folder settings restored before delivery.

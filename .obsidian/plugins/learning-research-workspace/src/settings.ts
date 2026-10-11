@@ -1,4 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { validZone } from './data/dates';
 import type WorkspacePlugin from './main';
 import { LABELS, ObjectType, WorkspaceSettings, validateFolder } from './domain';
 export class WorkspaceSettingsTab extends PluginSettingTab {
@@ -6,6 +7,7 @@ export class WorkspaceSettingsTab extends PluginSettingTab {
   display(){
     this.containerEl.empty();
     new Setting(this.containerEl).setName('啟動時開啟 Workspace').setDesc('保留其他分頁，進入工作區首頁。').addToggle(t=>t.setValue(this.workspacePlugin.settings.openOnStartup).onChange(async value=>{this.workspacePlugin.settings.openOnStartup=value;await this.workspacePlugin.saveSettings();}));
+    new Setting(this.containerEl).setName('日曆時區').setDesc('IANA 名稱，例如 Asia/Hong_Kong；修改只改顯示，不改已保存的時間。').addText(t=>{t.setValue(this.workspacePlugin.settings.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone);t.inputEl.addEventListener('change',()=>{void (async()=>{if(!validZone(t.getValue())){new Notice('無效時區。');return;}this.workspacePlugin.settings.timezone=t.getValue();await this.workspacePlugin.saveSettings();await this.workspacePlugin.index.rebuild();})().catch(error=>new Notice(String(error)));});});
     new Setting(this.containerEl).setName('重建索引').setDesc('索引只存在記憶體中；此操作不改動任何內容。').addButton(b=>b.setButtonText('重建').onClick(async()=>{await this.workspacePlugin.index.rebuild();new Notice('索引已重建。');}));
     new Setting(this.containerEl).setName('資料夾與範本').setHeading();
     this.containerEl.createEl('p',{text:'這些位置決定新內容的存放處。更改設定不會搬移現有檔案；以 type 與連結標示的內容仍可被找到。',cls:'setting-item-description'});

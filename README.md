@@ -56,14 +56,14 @@ AI 是協助操作這個工作區的夥伴。當我授權它記錄或更新內�
 
 ### 1. 建立可用的工作區基礎
 
-目前已有 Home、Courses、Research、Papers、Experiments、Ideas、Inbox，以及 Recent、Pinned、Library。支援模板建立、關聯彙整、原生筆記編輯與 PDF 並排閱讀。
+目前已有 Home、Tasks、Records、Courses、Research、Papers、Experiments、Ideas、Inbox，以及 Recent、Pinned、Library。支援模板建立、關聯彙整、原生筆記編輯與 PDF 並排閱讀。
 
 首頁也加入了後續確認的兩項需求：
 
 - **待辦清單**：可以手寫新增，也可以讓 AI 更新，保存為 `40 Notes/Tasks.md` 的普通 Markdown 核取方塊。
 - **專案進度條**：使用專案筆記中的 `progress` 數字，範圍為 0–100；沒有資料就顯示「尚未設定」。AI 可依我提供的百分比或已同意的計算依據更新，不從活動量猜測。
 
-這是輕量的工作提示，目前沒有加入完整的任務管理、里程碑依賴或日曆系統。
+2026-10-11 接續「功能與 UI 完善」：Home 改為本週／今日安排與優先待辦、續接入口；加入可保存的安排、任務詳情、工作記錄、按需日記與原文查找。資料仍是同一份 Tasks.md 及 Note 變體；沒有里程碑依賴、外部整合或自動排程。本輪 56 項測試與建置通過，Mac Obsidian 1.14.4 已驗證安排建立／拖移／調整／恢復、待辦、記錄與日記保存、本地匯出、明暗首頁及窄分割面板。Windows 與精確尺寸矩陣未實測，详细範圍見 VALIDATION。使用與格式見工作區文件。
 
 ### 2. 把它真正用進日常學習與研究
 

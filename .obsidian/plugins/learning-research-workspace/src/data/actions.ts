@@ -98,12 +98,15 @@ export class FileActions {
     }
     return file;
   }
-  async capture(content:string,idea:boolean) {
+  async capture(content:string,idea:boolean,operationId?:string) {
     if(!content.trim()) throw new Error('先寫下一點內容。');
     const title=safeStem(content.trim().split('\n')[0].replace(/^#+\s*/, '').slice(0,70)) || `Capture ${moment.utc().local().format('YYYY-MM-DD HHmmss')}`;
     await this.ensureFolder(this.settings().folders.inbox);
-    const yaml=`---\n${idea?'type: idea\n':''}status: inbox\ncreated: ${moment.utc().local().format('YYYY-MM-DD')}\n---\n`;
-    return this.app.vault.create(this.unique(this.settings().folders.inbox,`${title}.md`),`${yaml}\n# ${title}\n\n${content.trim()}\n`);
+    const capturePath=operationId?`${this.settings().folders.inbox}/${title} ${operationId}.md`:this.unique(this.settings().folders.inbox,`${title}.md`);
+    const matches=operationId?this.app.vault.getMarkdownFiles().filter(file=>file.path.endsWith(' '+operationId+'.md')||this.app.metadataCache.getFileCache(file)?.frontmatter?.capture_id===operationId):[];if(matches.length>1)throw new Error('捕捉操作 ID 重複，請先核對原檔。');
+    const previous=matches[0]||this.app.vault.getFileByPath(capturePath);if(operationId&&previous){const raw=await this.app.vault.read(previous);if(!raw.includes(`capture_id: ${operationId}\n`))throw new Error('捕捉檔名衝突，原檔保留。');if(!raw.includes(content.trim()))throw new Error(`前次捕捉已保存於 ${previous.path}，新草稿不同，請先核對。`);return previous;}
+    const yaml=`---\n${operationId?'capture_id: '+operationId+'\n':''}${idea?'type: idea\n':''}status: inbox\ncreated: ${moment.utc().local().format('YYYY-MM-DD')}\n---\n`;
+    return this.app.vault.create(capturePath,`${yaml}\n# ${title}\n\n${content.trim()}\n`);
   }
   async importFiles(files:File[],folder=this.settings().folders.inbox) {
     await this.ensureFolder(folder);

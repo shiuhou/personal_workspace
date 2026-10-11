@@ -1,10 +1,12 @@
 import { progressValue } from './data/tasks';
 export const TYPES = ['course', 'project', 'paper', 'note', 'experiment', 'idea', 'resource'] as const;
 export type ObjectType = typeof TYPES[number];
-export type Section = 'home' | 'courses' | 'research' | 'papers' | 'experiments' | 'ideas' | 'inbox' | 'recent' | 'library' | 'detail';
+export type Section = 'home' | 'courses' | 'research' | 'papers' | 'experiments' | 'ideas' | 'inbox' | 'recent' | 'library' | 'detail' | 'tasks' | 'records';
 export interface Route { section: Section; path?: string; filter?: string; query?: string }
 export interface WorkspaceSettings {
   openOnStartup: boolean;
+  timezone?: string;
+  homeMode?: 'week'|'today';
   folders: Record<ObjectType | 'inbox' | 'attachments' | 'templates', string>;
 }
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -41,7 +43,7 @@ export function isContentPath(path: string, settings: WorkspaceSettings): boolea
   return !inFolder(path,'00 Home') && !inFolder(path,'99 System');
 }
 export function isInbox(entry: Entry, settings: WorkspaceSettings): boolean {
-  return inFolder(entry.path,settings.folders.inbox) || entry.status === 'inbox';
+  return entry.status!=='archived'&&(inFolder(entry.path,settings.folders.inbox) || entry.status === 'inbox');
 }
 export function normalizeEntry(file: Pick<Entry,'path'|'name'|'ext'|'mtime'|'ctime'>, fm: Record<string,unknown> = {}, links: string[] = []): Entry {
   const issues: string[] = [];
@@ -67,7 +69,8 @@ export function matches(entry: Entry, query: string): boolean {
   return query.trim().normalize('NFKC').toLocaleLowerCase().split(/\s+/).every(token=>haystack.includes(token));
 }
 export function safeStem(title: string): string {
-  return title.normalize('NFC').replace(/[\\/:*?"<>|#\[\]\x00-\x1f]/g,' ').replace(/\s+/g,' ').replace(/^[. ]+|[. ]+$/g,'').slice(0,160).trim();
+  const stem=title.normalize('NFC').replace(/[\\/:*?"<>|#\[\]\x00-\x1f]/g,' ').replace(/\s+/g,' ').replace(/^[. ]+|[. ]+$/g,'').slice(0,160).trim();
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(stem)?stem+' note':stem;
 }
 export function validateFolder(value: string): boolean {
   return !!value.trim() && !value.startsWith('/') && !value.includes('\\') && !value.split('/').some(s=>!s || s==='.' || s==='..' || s.startsWith('.') || /[:*?"<>|]/.test(s));

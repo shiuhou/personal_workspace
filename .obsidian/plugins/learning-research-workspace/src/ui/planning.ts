@@ -1,6 +1,7 @@
 import { Modal, Setting, Notice } from 'obsidian';
 import type { WorkspaceHost } from '../contracts';
 import type { Entry } from '../domain';
+import { PortableStore, Snapshot } from '../data/portable';
 import { progressValue } from '../data/tasks';
 import { button } from './components';
 
@@ -18,9 +19,11 @@ export class ProgressModal extends Modal {
       const raw=input.value.trim();const value=raw===''?undefined:progressValue(Number(raw));
       if(input.validity.badInput||(raw!==''&&value==null)){error.setText('請填寫 0 至 100 的數字，或留空。');return;}
       save.disabled=true;
-      try {const file=this.app.vault.getFileByPath(this.entry.path);if(!file)throw new Error('專案已移動或刪除，請重新開啟。');await this.host.actions.update(file,{progress:value});this.close();new Notice('已更新專案進度。');}
+      try {if(!snapshot)throw new Error('專案仍在讀取。');await store.update(snapshot,{progress:value});this.close();new Notice('已更新專案進度。');}
       catch(e){error.setText(e instanceof Error?e.message:String(e));save.disabled=false;}
     },{cls:'lr-primary'});
+    const store=new PortableStore(this.app,()=>this.host.settings);let snapshot:Snapshot|undefined;save.disabled=true;
+    void store.read(this.entry.path).then(value=>{snapshot=value;input!.value=value.fm.progress==null?'':String(value.fm.progress);save.disabled=false;}).catch(e=>error.setText(String(e)));
     input!.focus();
   }
   onClose(){this.contentEl.empty();}

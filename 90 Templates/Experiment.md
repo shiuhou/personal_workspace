@@ -7,17 +7,17 @@ projects: []
 
 # {{title}}
 
-## 目標／問題 Goal / Question
+## 目標
 
-## 設定 Setup
+## 過程
 
-## 過程 Process
+### 設定／參數／版本（選填）
 
-## 結果 Result
+## 結果
 
-## 解讀 Interpretation
+### 解讀（選填）
 
-## 下一步 Next step
+## 未來計劃
 
 ## 證據與附件 Evidence / Artifacts
 
